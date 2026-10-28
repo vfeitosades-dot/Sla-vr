@@ -106,7 +106,7 @@
       this.video = video;
       this.onPose = onPose;
       this.width = 128; this.height = 96;
-      this.interval = 100; this.running = false; this.timer = null;
+      this.interval = 67; this.running = false; this.timer = null;
       this.previous = null; this.lastTime = 0;
       this.focalLength = (this.width / 2) / Math.tan((options.horizontalFovDegrees || 60) * Math.PI / 360);
       this.canvas = document.createElement('canvas');
