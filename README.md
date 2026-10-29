@@ -1,23 +1,19 @@
-# Horizon Pocket VR 5.0 — Spatial
+# Horizon Pocket VR 6.0 — Spatial
 
-[Baixar o APK 5.0](./HorizonPocketVR_5.apk)
+[Baixar o APK 6.0](./HorizonPocketVR_6.apk)
 
 Um terraço 3D para explorar no celular ou VR Box: água animada, ilhas, plantas, espreguiçadeiras, luz e sombras, uma escultura cinética e painel flutuante com espessura, perspectiva e visão estereoscópica. Interface independente inspirada em interfaces espaciais; não afiliada à Meta e não executa jogos Quest.
 
-## Correções da versão 5
+## Otimização da câmera na versão 6
 
-Escopo: sentido/estabilidade da orientação e nitidez. Cenário, menus e funcionalidades mantidos.
+- Vídeo da câmera exibido pelo compositor do navegador, sem enviar cada quadro a uma textura WebGL. O cenário deixa de ser renderizado enquanto a câmera é exibida; o painel continua em alta resolução.
+- Segundo elemento de vídeo usa a mesma captura, somente no modo VR. Ao sair, as faixas são encerradas e o cenário volta.
+- Captura limitada a 640×480 e 24 FPS. A taxa de captura é independente da animação da interface.
+- MediaPipe Hands usa modelo Lite (`modelComplexity: 0`), entrada reduzida para 320 pixels de largura, até duas mãos. Intervalo mínimo de 100 ms após cada inferência; alvo de aproximadamente 4,5 análises por segundo. O desenho continua com 21 pontos por mão; mãos muito pequenas/distantes podem perder precisão.
+- Sem análise repetida do mesmo quadro e sem inferência quando a página está oculta. Esqueleto só redesenhado quando muda; indicadores do painel atualizados no máximo uma vez por segundo.
+- Mantidas as correções de sentido e a renderização nítida do painel da versão 5.
 
-- Corrigido o sinal horizontal da visão computacional: movimento da imagem à direita corresponde a rotação da câmera à esquerda no sistema Three.js. Movimento vertical mantém o sinal correto.
-- O sensor nativo agora calcula a direção do eixo óptico da câmera traseira (-Z), em vez do azimute do topo da tela. Evita instabilidade com o celular vertical na posição de VR.
-- Sensor sem direção horizontal preserva o movimento lateral estimado pela câmera. Trocas de sensor e pausas restabelecem a referência para evitar saltos; leitura magnética inválida é ignorada.
-- Cabeçalho próximo da vertical é mantido quando geometricamente indefinido; o acelerômetro fornece somente inclinação.
-- Painel com textura 1740 × 1590 e passagem de renderização em até 2× a resolução CSS, independente da redução automática de resolução do cenário. Não aumenta artificialmente a resolução física da tela.
-- Ajustada a suavização para reduzir atraso em movimentos deliberados.
-
-Validação desta versão: Java compilado, DEX gerado, assinatura APK verificada. Testes físicos por matrizes: norte/leste/oeste, cima/baixo, quatro rotações de tela, apontar vertical e acelerômetro. Teste da saída real do rastreador óptico comparada à projeção da câmera Three.js nos quatro sentidos. Todos passaram.
-
-O teste visual Chromium desta versão ficou bloqueado pelo sandbox do ambiente. A passagem gráfica de alta resolução e os sensores físicos precisam de confirmação em aparelho. As verificações de navegador listadas abaixo são da versão anterior; não constituem validação visual da versão 5.
+Validação: sintaxe JavaScript, direção nos quatro sentidos e testes de rastreamento passaram. Teste com DOM/renderer simulados confirmou ausência de VideoTexture, zero chamadas de desenho do cenário durante a câmera, painel ativo, segundo vídeo somente em VR e encerramento da captura ao sair. APK assinado e verificado. Esses testes não são benchmark de FPS: câmera real, desempenho e qualidade das mãos ainda precisam de validação em celular. Verificações de navegador anteriores não foram repetidas nesta versão.
 
 ## Usar
 
@@ -30,7 +26,7 @@ O teste visual Chromium desta versão ficou bloqueado pelo sandbox do ambiente. 
 
 ## Orientação e IA: o que é real
 
-O esqueleto usa **MediaPipe Hands**, modelo treinado com `modelComplexity: 1`, até duas mãos, limiares de detecção e rastreamento de 0,65 e cadência de até 8 inferências por segundo. O desenho representa pontos estimados da mão, não ossos medidos. Pouca luz, oclusão e mãos fora do enquadramento prejudicam a detecção.
+O esqueleto usa **MediaPipe Hands**, modelo treinado com `modelComplexity: 0`, até duas mãos, limiares de detecção e rastreamento de 0,65 e cadência de até aproximadamente 4,5 inferências por segundo. O desenho representa pontos estimados da mão, não ossos medidos. Pouca luz, oclusão e mãos fora do enquadramento prejudicam a detecção.
 
 A orientação usa sensores nativos quando disponíveis, com ajuste aos eixos da tela, tratamento da passagem de 359° para 0° e suavização adaptativa. Há fallback para acelerômetro e magnetômetro, ou somente inclinação por acelerômetro. Um aparelho sem hardware de direção não ganha um giroscópio físico por software.
 
@@ -40,7 +36,7 @@ A alternativa pela câmera é **visão computacional clássica, experimental**, 
 
 O app pede apenas Internet e Câmera. Sem permissão de microfone ou acesso amplo ao armazenamento. A câmera é ativada por ação do usuário e desligada quando o aplicativo vai para segundo plano; o pedido de permissão pendente é preservado ao pausar pelo próprio diálogo do Android. Não envia quadros da câmera a um servidor. O modelo e seu runtime são baixados de jsDelivr, e podem exigir internet novamente se não estiverem em cache.
 
-Android 8+ e Android System WebView atualizado, com WebGL. `minSdk 26`, `targetSdk 34`, `versionCode 5`. Mesmo certificado dos APKs 1 atualizado e 2 deste repositório; permite atualização sobre eles. Não usa a assinatura do APK original enviado pelo usuário.
+Android 8+ e Android System WebView atualizado, com WebGL. `minSdk 26`, `targetSdk 34`, `versionCode 6`. Mesmo certificado dos APKs 1 atualizado e 2 deste repositório; permite atualização sobre eles. Não usa a assinatura do APK original enviado pelo usuário.
 
 ## Validação
 

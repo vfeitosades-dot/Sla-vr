@@ -38,6 +38,7 @@
       this.onStatus = typeof onStatus === 'function' ? onStatus : () => {};
       this.latest = [];
       this.handedness = [];
+      this.input=document.createElement('canvas');this.input.width=320;this.input.height=240;this.inputContext=this.input.getContext('2d',{alpha:false});this.lastVideoTime=-1;
       this.active = false;
       this._run = null;
       this._generation = 0;
@@ -68,7 +69,7 @@
         if (!this._current(run)) return false;
         const model = new global.Hands({ locateFile: file => CDN + file });
         run.model = model;
-        model.setOptions({ maxNumHands: 2, modelComplexity: 1, minDetectionConfidence: 0.65, minTrackingConfidence: 0.65 });
+        model.setOptions({ maxNumHands: 2, modelComplexity: 0, minDetectionConfidence: 0.65, minTrackingConfidence: 0.65 });
         model.onResults(result => {
           if (!this._current(run)) return;
           this.latest = (result.multiHandLandmarks || []).filter(hand => hand.length === 21).map(hand => hand.map(p => ({ x: p.x, y: p.y, z: p.z })));
@@ -104,14 +105,17 @@
     }
     async _tick(run) {
       if (!this._current(run) || run.busy) return;
-      if (this.video.readyState < 2 || !this.video.videoWidth || this.video.paused) {
+      if (this.video.readyState < 2 || !this.video.videoWidth || this.video.paused || document.hidden || this.video.currentTime===this.lastVideoTime) {
         this._schedule(run, 200);
         return;
       }
       const started = performance.now();
       run.busy = true;
       try {
-        const sending = Promise.resolve(run.model.send({ image: this.video }));
+        this.lastVideoTime=this.video.currentTime;
+        const h=Math.max(1,Math.round(320*this.video.videoHeight/this.video.videoWidth));if(this.input.height!==h)this.input.height=h;
+        this.inputContext.drawImage(this.video,0,0,320,h);
+        const sending = Promise.resolve(run.model.send({ image: this.input }));
         sending.finally(() => { run.busy = false; if (!this._current(run)) this._close(run); }).catch(() => {});
         await timed(sending, 15000, 'O rastreamento de mãos parou de responder. Desative e tente novamente.');
       } catch (error) {
@@ -124,7 +128,7 @@
         this._close(run);
         return;
       }
-      this._schedule(run, Math.max(0, 125 - (performance.now() - started)));
+      this._schedule(run, Math.max(100, 220 - (performance.now() - started)));
     }
     stop() {
       const run = this._run;
