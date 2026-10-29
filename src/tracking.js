@@ -106,7 +106,7 @@
       this.video = video;
       this.onPose = onPose;
       this.width = 128; this.height = 96;
-      this.interval = 67; this.running = false; this.timer = null;
+      this.interval = 100; this.running = false; this.timer = null;
       this.previous = null; this.lastTime = 0;
       this.focalLength = (this.width / 2) / Math.tan((options.horizontalFovDegrees || 60) * Math.PI / 360);
       this.canvas = document.createElement('canvas');
@@ -127,6 +127,7 @@
     tick() {
       if (!this.running) return;
       const started = performance.now();
+      if (this.shouldTrack && !this.shouldTrack()) { this.previous=null; this.timer=setTimeout(this.tick,200); return; }
       if (document.hidden || this.video.readyState < 2 || !this.video.videoWidth) {
         this.previous = null;
       } else {
@@ -153,7 +154,7 @@
           this.onPose({ dx: 0, dy: 0, yaw: 0, pitch: 0, confidence: 0, features: 0, state: 'camera-error', units: 'processing-pixels' });
         }
       }
-      if (this.running) this.timer = setTimeout(this.tick, Math.max(20, this.interval - (performance.now() - started)));
+      if (this.running) {const cost=performance.now()-started;this.timer=setTimeout(this.tick,Math.max(40,cost*2,this.interval-cost));}
     }
   }
   PocketTracker.estimate = estimate;
