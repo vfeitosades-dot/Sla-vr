@@ -140,8 +140,8 @@
           for (let i = 0; i < gray.length; i++) gray[i] = (rgba[i * 4] * 77 + rgba[i * 4 + 1] * 150 + rgba[i * 4 + 2] * 29) / 256;
           if (this.previous && started - this.lastTime < 350) {
             const p = estimate(this.previous, gray, this.width, this.height);
-            // Signed approximate rotation of the camera, opposite image motion.
-            p.yaw = -Math.atan(p.dx / this.focalLength);
+            // Three.js YXZ: image motion right means camera yaw left (+Y); down means pitch up (+X).
+            p.yaw = Math.atan(p.dx / this.focalLength);
             p.pitch = Math.atan(p.dy / this.focalLength);
             p.timestamp = started; p.dt = started - this.lastTime;
             p.units = 'processing-pixels';

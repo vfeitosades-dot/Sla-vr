@@ -1,17 +1,23 @@
-# Horizon Pocket VR 4.0 — Spatial
+# Horizon Pocket VR 5.0 — Spatial
 
-[Baixar o APK 4.0](./HorizonPocketVR_4.apk)
+[Baixar o APK 5.0](./HorizonPocketVR_5.apk)
 
 Um terraço 3D para explorar no celular ou VR Box: água animada, ilhas, plantas, espreguiçadeiras, luz e sombras, uma escultura cinética e painel flutuante com espessura, perspectiva e visão estereoscópica. Interface independente inspirada em interfaces espaciais; não afiliada à Meta e não executa jogos Quest.
 
-## Otimização da versão 4
+## Correções da versão 5
 
-- Removido o limite de 30 FPS; renderização acompanha requestAnimationFrame.
-- Geometria estática agrupada por material, materiais compartilhados e sombras dinâmicas desativadas.
-- Painel em textura de alta resolução, redesenhado somente quando necessário; cenário com escala dinâmica entre 0,65 e 1,5 pixels por pixel CSS.
-- Contador de FPS real. A escala diminui abaixo de 40 FPS e sobe com margem acima de 53 FPS. Não garante 40 FPS em qualquer aparelho, especialmente durante inferência das mãos.
-- Rastreamento visual a até 15 Hz, com movimento horizontal e vertical. Sensor sem heading não bloqueia o yaw pela câmera; perda de sensor permite fallback também no pitch.
-- Testes Chromium de navegação, câmera simulada e VR passaram. Na cena final do teste VR, chamadas de desenho caíram de 69 para 31. Não é benchmark de FPS em celular.
+Escopo: sentido/estabilidade da orientação e nitidez. Cenário, menus e funcionalidades mantidos.
+
+- Corrigido o sinal horizontal da visão computacional: movimento da imagem à direita corresponde a rotação da câmera à esquerda no sistema Three.js. Movimento vertical mantém o sinal correto.
+- O sensor nativo agora calcula a direção do eixo óptico da câmera traseira (-Z), em vez do azimute do topo da tela. Evita instabilidade com o celular vertical na posição de VR.
+- Sensor sem direção horizontal preserva o movimento lateral estimado pela câmera. Trocas de sensor e pausas restabelecem a referência para evitar saltos; leitura magnética inválida é ignorada.
+- Cabeçalho próximo da vertical é mantido quando geometricamente indefinido; o acelerômetro fornece somente inclinação.
+- Painel com textura 1740 × 1590 e passagem de renderização em até 2× a resolução CSS, independente da redução automática de resolução do cenário. Não aumenta artificialmente a resolução física da tela.
+- Ajustada a suavização para reduzir atraso em movimentos deliberados.
+
+Validação desta versão: Java compilado, DEX gerado, assinatura APK verificada. Testes físicos por matrizes: norte/leste/oeste, cima/baixo, quatro rotações de tela, apontar vertical e acelerômetro. Teste da saída real do rastreador óptico comparada à projeção da câmera Three.js nos quatro sentidos. Todos passaram.
+
+O teste visual Chromium desta versão ficou bloqueado pelo sandbox do ambiente. A passagem gráfica de alta resolução e os sensores físicos precisam de confirmação em aparelho. As verificações de navegador listadas abaixo são da versão anterior; não constituem validação visual da versão 5.
 
 ## Usar
 
@@ -34,7 +40,7 @@ A alternativa pela câmera é **visão computacional clássica, experimental**, 
 
 O app pede apenas Internet e Câmera. Sem permissão de microfone ou acesso amplo ao armazenamento. A câmera é ativada por ação do usuário e desligada quando o aplicativo vai para segundo plano; o pedido de permissão pendente é preservado ao pausar pelo próprio diálogo do Android. Não envia quadros da câmera a um servidor. O modelo e seu runtime são baixados de jsDelivr, e podem exigir internet novamente se não estiverem em cache.
 
-Android 8+ e Android System WebView atualizado, com WebGL. `minSdk 26`, `targetSdk 34`, `versionCode 4`. Mesmo certificado dos APKs 1 atualizado e 2 deste repositório; permite atualização sobre eles. Não usa a assinatura do APK original enviado pelo usuário.
+Android 8+ e Android System WebView atualizado, com WebGL. `minSdk 26`, `targetSdk 34`, `versionCode 5`. Mesmo certificado dos APKs 1 atualizado e 2 deste repositório; permite atualização sobre eles. Não usa a assinatura do APK original enviado pelo usuário.
 
 ## Validação
 

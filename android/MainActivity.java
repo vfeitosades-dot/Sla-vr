@@ -34,6 +34,8 @@ public class MainActivity extends Activity implements SensorEventListener {
     private final float[] gravity = new float[3], magnetic = new float[3];
     private boolean haveGravity, haveMagnetic;
     private long lastPose;
+    private double lastHeading;
+    private boolean headingValid;
     private int sensorAccuracy = SensorManager.SENSOR_STATUS_UNRELIABLE;
     private String sensorSource = "unavailable";
 
@@ -315,26 +317,23 @@ public class MainActivity extends Activity implements SensorEventListener {
         if (display == Surface.ROTATION_90) { x = SensorManager.AXIS_Y; y = SensorManager.AXIS_MINUS_X; }
         else if (display == Surface.ROTATION_270) { x = SensorManager.AXIS_MINUS_Y; y = SensorManager.AXIS_X; }
         else if (display == Surface.ROTATION_180) { x = SensorManager.AXIS_MINUS_X; y = SensorManager.AXIS_MINUS_Y; }
-        float[] remapped = new float[9], orientation = new float[3];
+        float[] remapped = new float[9];
         if (!SensorManager.remapCoordinateSystem(matrix, x, y, remapped)) return;
-        SensorManager.getOrientation(remapped, orientation);
-        emitPose(Math.toDegrees(orientation[0]), Math.toDegrees(orientation[1]), Math.toDegrees(orientation[2]));
+        // Aim along the rear camera (-screen Z), not the screen-top azimuth.
+        double[] aim = CameraAim.fromMatrix(remapped, lastHeading);
+        lastHeading = aim[0]; headingValid = aim[2] > 0;
+        emitPose(aim[0], aim[1], 0);
     }
     private void emitTilt() {
-        int display = getWindowManager().getDefaultDisplay().getRotation();
-        float x = gravity[0], y = gravity[1], z = gravity[2];
-        if (display == Surface.ROTATION_90) { x = gravity[1]; y = -gravity[0]; }
-        else if (display == Surface.ROTATION_270) { x = -gravity[1]; y = gravity[0]; }
-        else if (display == Surface.ROTATION_180) { x = -gravity[0]; y = -gravity[1]; }
-        // Without a magnetometer or gyro there is no absolute horizontal heading.
-        emitPose(0, Math.toDegrees(Math.atan2(-y, Math.sqrt(x*x + z*z))), Math.toDegrees(Math.atan2(x, z)));
+        headingValid = false;
+        emitPose(0, CameraAim.tilt(gravity), 0);
     }
     private void emitPose(double alpha, double beta, double gamma) {
         long now = SystemClock.elapsedRealtime();
         if (now - lastPose < 32 || !Double.isFinite(alpha) || !Double.isFinite(beta) || !Double.isFinite(gamma)) return;
         lastPose = now;
         js("if(window.onNativePose)window.onNativePose({alpha:" + alpha + ",beta:" + beta + ",gamma:" + gamma
-            + ",source:" + JSONObject.quote(sensorSource) + ",accuracy:" + sensorAccuracy + ",timestamp:" + now + "})");
+            + ",space:\"camera-forward\",hasYaw:" + headingValid + ",source:" + JSONObject.quote(sensorSource) + ",accuracy:" + sensorAccuracy + ",timestamp:" + now + "})");
     }
     @Override public void onAccuracyChanged(Sensor sensor, int accuracy) { sensorAccuracy = accuracy; }
     @Override protected void onResume() {
