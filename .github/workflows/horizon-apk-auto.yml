@@ -75,8 +75,8 @@ jobs:
                   applicationId 'com.pocket.horizon.ci'
                   minSdk 26
                   targetSdk 34
-                  versionCode 80
-                  versionName '8.0-auto'
+                  versionCode 90
+                  versionName '9.0-auto'
               }
               compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
           }
@@ -88,6 +88,7 @@ jobs:
           node --check src/hands-overlay.js
           node --check src/tracking.js
           node src/check_direction.cjs
+          node src/check_fast_turns.cjs
           node src/check_camera_budget.cjs
 
       - name: Compilar APK Android
