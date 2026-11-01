@@ -171,9 +171,10 @@ function coarseMotion(prev,cur,sw,sh,boxes){
   }
   if(sites.length<9)return null;
   let best=Infinity,bx=0,by=0;
+  const samples=sites.length>48?sites.filter((_,i)=>i%Math.ceil(sites.length/48)===0):sites;
   for(let dy=-9;dy<=9;dy++)for(let dx=-9;dx<=9;dx++){
     let score=0;
-    for(const [x,y] of sites){
+    for(const [x,y] of samples){
       for(let oy=-1;oy<=1;oy++){
         const a=(y+oy)*hw+x,b=(y+oy+dy)*hw+x+dx;
         for(let ox=-1;ox<=1;ox++){const d=prev[a+ox]-cur[b+ox];score+=d<0?-d:d}
@@ -182,7 +183,7 @@ function coarseMotion(prev,cur,sw,sh,boxes){
     }
     if(score<best){best=score;bx=dx;by=dy}
   }
-  const mean=best/(sites.length*9);
+  const mean=best/(samples.length*9);
   if(mean>25||Math.abs(bx)>=9||Math.abs(by)>=9)return null;
   return {x:bx*2,y:by*2,quality:Math.max(0,1-mean/25)};
 }
@@ -196,10 +197,11 @@ function wideMotion(prev,cur,sw,sh,boxes){
     if(Math.abs(prev[i-2]-prev[i+2])+Math.abs(prev[i-sw*2]-prev[i+sw*2])>22)sites.push(i);
   }
   if(sites.length<12)return null;
+  const samples=sites.length>32?sites.filter((_,i)=>i%Math.ceil(sites.length/32)===0):sites;
   let best=Infinity,bx=0,by=0;
   for(let dy=-12;dy<=12;dy++)for(let dx=-18;dx<=18;dx++){
     const shift=dy*sw+dx;let score=0;
-    for(const i of sites){
+    for(const i of samples){
       let d=prev[i]-cur[i+shift];score+=d<0?-d:d;
       d=prev[i-2]-cur[i+shift-2];score+=d<0?-d:d;
       d=prev[i+2]-cur[i+shift+2];score+=d<0?-d:d;
@@ -209,8 +211,8 @@ function wideMotion(prev,cur,sw,sh,boxes){
     }
     if(score<best){best=score;bx=dx;by=dy}
   }
-  if(best/(sites.length*5)>19||Math.abs(bx)>=18||Math.abs(by)>=12)return null;
-  return {x:bx,y:by,quality:Math.max(0,1-best/(sites.length*5*19))};
+  if(best/(samples.length*5)>19||Math.abs(bx)>=18||Math.abs(by)>=12)return null;
+  return {x:bx,y:by,quality:Math.max(0,1-best/(samples.length*5*19))};
 }
 function downsampleGray(full,half,w,h){
   const hw=w>>1;
@@ -260,7 +262,7 @@ function gyroStep(vid){
     for(const p of T.c){if(p[0]<x0)x0=p[0];if(p[0]>x1)x1=p[0];if(p[1]<y0)y0=p[1];if(p[1]>y1)y1=p[1]}
     const m=T.s*.5;return[(x0-m)/gy.sc,(y0-m)/gy.sc,(x1+m)/gy.sc,(y1+m)/gy.sc]});
   const coarse=coarseMotion(gy.smallPrev,gy.smallCur,sw,sh,boxes);
-  const wide=(!coarse||coarse.quality<.56)?wideMotion(gy.prev,cur,sw,sh,boxes):null;
+  const wide=(!coarse||coarse.quality<.48)?wideMotion(gy.prev,cur,sw,sh,boxes):null;
   const prediction=wide||coarse;
   const px=prediction?Math.round(prediction.x):Math.max(-7,Math.min(7,Math.round(gy.ptx)));
   const py=prediction?Math.round(prediction.y):Math.max(-7,Math.min(7,Math.round(gy.pty)));
@@ -316,7 +318,10 @@ function drawArrow(){
 // envia-se cada frame novo da câmera à GPU uma vez; o painel é outra textura.
 let gl=null,glVideoTex=null,glOverlayTex=null,glAspect=null,glCamAspect=null,glOverlayAspect=null,
   glOverlayW=0,glOverlayH=0,glVideoW=0,glVideoH=0,glVideoTime=-1;
-let vrQuality=1,vrFrames=0,vrFps=0,vrMeasure=0,vrLastAdjust=0;
+const vrMaxHeight=480,vrMinHeight=400;
+let vrQualityHeight=480,vrSlowWindows=0,vrFastWindows=0;
+const perfInfo={drawFPS:0,trackingFPS:0,handsFPS:0,renderScale:1};
+let gyroCount=0,handCount=0;
 function makeTexture(unit){
   const tex=gl.createTexture();
   gl.activeTexture(gl.TEXTURE0+unit);gl.bindTexture(gl.TEXTURE_2D,tex);
@@ -382,8 +387,9 @@ function initGL(){
 function sizeVR(){
   // Limite anterior: 540px de altura. Agora 480px (21% menos pixels).
   const d=Math.min(devicePixelRatio||1,1.35);
-  const base=Math.min(Math.round(innerHeight*d),480);
-  const h=Math.max(240,Math.round(base*vrQuality/2)*2);
+  const base=Math.min(Math.round(innerHeight*d),vrQualityHeight);
+  const h=Math.max(240,Math.round(base/2)*2);
+  perfInfo.renderScale=h/vrMaxHeight;
   const w=Math.max(320,Math.round((h*innerWidth/innerHeight)/2)*2);
   if(glc.width!==w||glc.height!==h){glc.width=w;glc.height=h;}
   if(gl){gl.viewport(0,0,w,h);gl.uniform1f(glAspect,(w/2)/h);}
@@ -423,7 +429,7 @@ function paintVRHand(g,T){
   g.restore();
 }
 async function setVR(on){
-  vr=on;R=on?.9:1;for(const c of[cp,cf,co]){c.width=Math.round(CW*R);c.height=Math.round(CH*R)};glc.style.display=on?'block':'none';vrb.style.display=on?'none':'block';
+  vr=on;R=on?.86:1;for(const c of[cp,cf,co]){c.width=Math.round(CW*R);c.height=Math.round(CH*R)};glc.style.display=on?'block':'none';vrb.style.display=on?'none':'block';
   if(on){
     initGL();sizeVR();
     try{await document.documentElement.requestFullscreen({navigationUI:'hide'})}catch(e){}
@@ -468,8 +474,13 @@ function render(now){
   const t=now/1000,k=1-Math.exp(-dt*45),kq=1-Math.exp(-dt*20);
   tracks=tracks.filter(T=>t-T.seen<.42);
   if(panel.grab&&!tracks.includes(panel.grab.T))panel.grab=null;
-  xp.setTransform(R,0,0,R,0,0);xf.setTransform(R,0,0,R,0,0);xo.setTransform(R,0,0,R,0,0);
-  xp.clearRect(0,0,CW,CH);xf.clearRect(0,0,CW,CH);xo.clearRect(0,0,CW,CH);
+  xp.setTransform(R,0,0,R,0,0);xp.clearRect(0,0,CW,CH);
+  // Em VR o painel e as mãos compartilham uma única textura na GPU.
+  // Fora do VR, preserva as camadas com silhueta e contorno originais.
+  if(!vr){
+    xf.setTransform(R,0,0,R,0,0);xo.setTransform(R,0,0,R,0,0);
+    xf.clearRect(0,0,CW,CH);xo.clearRect(0,0,CW,CH);
+  }
   let hover=false;
 
   for(const T of tracks){
@@ -510,8 +521,9 @@ function render(now){
   xp.beginPath();xp.moveTo(bar[0][0],bar[0][1]);xp.lineTo(bar[1][0],bar[1][1]);xp.lineCap='round';xp.lineWidth=5;xp.strokeStyle='rgba(255,255,255,.7)';xp.stroke();
 
   drawArrow();
-  // mãos
+  // Mãos: textura VR única; no modo normal mantém desenho antigo.
   for(const T of tracks){
+    if(vr){paintVRHand(xp,T);continue}
     const ow=Math.max(1.5,T.s*.013);
     shape(xf,T.P,T.s,0,'#fff');
     shape(xo,T.P,T.s,ow,'#fff');
@@ -549,7 +561,7 @@ async function initLegacy(){
 go.onclick=async()=>{
   go.style.display='none';msg.textContent='Abrindo a câmera...';
   try{
-    v.srcObject=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:640,max:800},height:{ideal:480,max:600},frameRate:{ideal:30,max:30}},audio:false});
+    v.srcObject=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:576,max:640},height:{ideal:432,max:480},frameRate:{ideal:30,max:30}},audio:false});
     await v.play();
     applyVideoSize();started=true;vrb.style.display='block';
     v.addEventListener('resize',()=>{if(v.videoWidth!==CW||v.videoHeight!==CH)applyVideoSize()});
@@ -565,7 +577,7 @@ go.onclick=async()=>{
     const queueFrame=fn=>v.requestVideoFrameCallback?v.requestVideoFrameCallback(fn):requestAnimationFrame(fn);
     const motionLoop=()=>{
       const t=performance.now();
-      if(!document.hidden&&v.readyState>=2&&v.currentTime!==lastGyFrame&&t-lastGyAt>=Math.max(44,gyroEMA*1.35)){
+      if(!document.hidden&&v.readyState>=2&&v.currentTime!==lastGyFrame&&t-lastGyAt>=Math.max(handEMA>55?78:handEMA>32?62:48,gyroEMA*1.5)){
         lastGyFrame=v.currentTime;lastGyAt=t;
         const began=performance.now();
         try{const mo=gyroStep(v);gyroCount++;if(panel.init&&!panel.grab)applyCam(mo)}catch(e){console.warn('Direção:',e)}
@@ -574,7 +586,7 @@ go.onclick=async()=>{
       if(started)queueFrame(motionLoop);
     };
     const handsLoop=async()=>{
-      const t=performance.now(),base=handEMA>55?115:handEMA>33?82:handEMA>19?64:42,target=(vr&&perfInfo.drawFPS>0&&perfInfo.drawFPS<48)?Math.max(base,95):base;
+      const t=performance.now(),base=handEMA>55?135:handEMA>33?95:handEMA>19?72:54,target=(vr&&perfInfo.drawFPS>0&&perfInfo.drawFPS<48)?Math.max(base,110):base;
       if(!document.hidden&&v.readyState>=2&&v.currentTime!==lastHandFrame&&t-lastHandAt>=target){
         lastHandFrame=v.currentTime;lastHandAt=t;
         const began=performance.now();
