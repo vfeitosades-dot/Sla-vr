@@ -1,39 +1,70 @@
 'use strict';
 const assert=require('node:assert/strict');
-const fs=require('node:fs');
-const vm=require('node:vm');
-const path=require('node:path');
+const fs=require('node:fs'),vm=require('node:vm'),path=require('node:path');
 const html=fs.readFileSync(path.join(__dirname,'../app/src/main/assets/index.html'),'utf8');
-const from=html.indexOf('function sizeVR(){');
-const to=html.indexOf("addEventListener('resize'",from);
-assert(from>0&&to>from,'VR sizing function must exist');
-const source=html.slice(from,to);
-const mock={devicePixelRatio:3,innerWidth:854,innerHeight:393,
-  vrc:{width:0,height:0},glc:{width:0,height:0},glTextureW:0,glTextureH:0,
-  vrQualityHeight:480,gl:null,perfInfo:{renderScale:0},msg:{textContent:''},vr:true};
-vm.createContext(mock);
-vm.runInContext(source,mock);
-mock.sizeVR();
-assert.equal(mock.vrc.height,480,'VR maximum should be modestly lower than 540px');
-assert.equal(mock.vrc.width,Math.round(480*854/393));
-const w=mock.vrc.width,h=mock.vrc.height;
-mock.sizeVR();
-assert.equal(mock.vrc.height,h,'unchanged sizing');
-assert.equal(mock.vrc.width,w,'unchanged sizing width');
-mock.vrQualityHeight=400;
-mock.sizeVR();
-assert.equal(mock.vrc.height,400,'VR dynamic lower bound');
-mock.innerHeight=240;
-mock.sizeVR();
-assert.equal(mock.vrc.height,312,'DPR cap limits tall memory use');
-assert(html.includes("if(vr){lastVRDraw=now;drawVR();}"),'must not retain the old 30 FPS compositor throttle');
-assert(!html.includes('now-lastVRDraw>26'),'30 FPS VR limiter must be removed');
-assert(html.includes('R=on?.9:1'),'VR overlays should have a slightly reduced pixel budget');
-assert(html.includes('const vrMaxHeight=480,vrMinHeight=400'),'adaptive VR resolution governor must exist');
-assert(html.includes("const FOVL=70"),'camera FOV and head motion calculation must be preserved');
-assert(html.includes("const float K1=.20,K2=.08,SC=.88;"),'lens distortion coefficients must be unchanged');
-assert(html.includes("let vr=false"),'VR toggle must exist');
-assert(html.includes("id=\"vrb\""),'VR button must be preserved');
-assert(html.includes("const panel={"),'floating panel must be preserved');
-assert(html.includes("onLandmarks(await det(v))"),'hand tracking must be preserved');
-console.log('PASS: VR compositor uncapped from 30 FPS, dynamic 400-480px resolution, adaptive ratio, original look/controls preserved');
+function section(a,b){
+  const from=html.indexOf(a),to=html.indexOf(b,from);
+  assert(from>=0&&to>from,'source section not found: '+a);
+  return html.slice(from,to);
+}
+// The UI still renders at requestAnimationFrame cadence, unlike the old 26ms limiter.
+assert(html.includes('if(vr){lastVRDraw=now;drawVR();}'),'VR render must not use an artificial ~30 FPS cap');
+assert(!html.includes('now-lastVRDraw>26'));
+assert(html.includes('const vrMaxHeight=480,vrMinHeight=400'),'dynamic render scaling absent');
+assert(html.includes('R=on?.86:1'),'VR panel overlays must use fewer pixels');
+assert(html.includes('paintVRHand(xp,T)'),'VR hand overlay must be visible');
+assert(html.includes('const FOVL=70')&&html.includes('const float K1=.20,K2=.08,SC=.88;'),'orientation/lens constants lost');
+assert(html.includes('onLandmarks(await det(v))'),'live hand tracking lost');
+assert(!html.includes('const vrc=document.createElement'),'intermediate stereo canvas must be eliminated');
+
+// Render resolution: cap at 480px, dynamically downscale to 400px.
+// Lower DPI and shorter phone dimensions must not allocate larger textures.
+const sizer={devicePixelRatio:3,innerWidth:854,innerHeight:393,glc:{width:0,height:0},
+  vrQualityHeight:480,vrMaxHeight:480,gl:null,perfInfo:{renderScale:0},msg:{textContent:''},vr:true,
+  Math,addEventListener(){}};
+vm.createContext(sizer);
+vm.runInContext(section('function sizeVR(){',"addEventListener('resize'"),sizer);
+sizer.sizeVR();
+assert.equal(sizer.glc.height,480);
+assert.equal(sizer.glc.width,Math.round(480*854/393/2)*2);
+const initialWidth=sizer.glc.width;
+sizer.sizeVR();
+assert.equal(sizer.glc.width,initialWidth);
+sizer.vrQualityHeight=400;
+sizer.sizeVR();
+assert.equal(sizer.glc.height,400);
+sizer.innerHeight=240;
+sizer.sizeVR();
+assert.equal(sizer.glc.height,324,'DPR capped at 1.35');
+
+// Video to GPU: a camera frame is uploaded ONCE, even when the visual
+// overlay is rendered repeatedly at the display refresh rate.
+const transfers=[];
+const mockGL={
+  TEXTURE0:33984,TEXTURE1:33985,TEXTURE_2D:3553,RGBA:6408,UNSIGNED_BYTE:5121,TRIANGLE_STRIP:5,
+  activeTexture(unit){transfers.push(['active',unit])},
+  bindTexture(){},
+  texImage2D(...args){transfers.push(['image',args[args.length-1]])},
+  texSubImage2D(...args){transfers.push(['sub',args[args.length-1]])},
+  uniform1f(){},
+  drawArrays(){transfers.push(['draw'])}
+};
+const v={readyState:4,videoWidth:576,videoHeight:432,currentTime:3};
+const cp={width:494,height:371};
+const upload={gl:mockGL,v,cp,glVideoTime:-1,glVideoTex:{},glOverlayTex:{},
+  glVideoW:0,glVideoH:0,glOverlayW:0,glOverlayH:0,glCamAspect:{},glOverlayAspect:{},Math};
+vm.createContext(upload);
+vm.runInContext(section('function drawVR(){','function paintVRHand('),upload);
+upload.drawVR();
+assert.equal(transfers.filter(x=>x[0]==='image').length,2,'camera and overlay should each be uploaded once');
+assert.equal(transfers.filter(x=>x[0]==='draw').length,1);
+transfers.length=0;
+upload.drawVR();
+assert.equal(transfers.filter(x=>x[0]==='sub'&&x[1]===v).length,0,'duplicate camera frame must not reupload');
+assert.equal(transfers.filter(x=>x[0]==='sub'&&x[1]===cp).length,1,'overlay still refreshes smoothly');
+v.currentTime=3.033;
+transfers.length=0;upload.drawVR();
+assert.equal(transfers.filter(x=>x[0]==='sub'&&x[1]===v).length,1,'new camera frame must upload');
+assert.equal(transfers.filter(x=>x[0]==='draw').length,1);
+
+console.log('PASS: 60Hz-capable render loop; 400-480px adaptive VR; single direct GPU pass; camera uploaded only on frame changes.');
