@@ -6,6 +6,9 @@ on:
       - 'hand-tracking-vrbox/**'
       - '.github/workflows/handtracking-vrbox-apk.yml'
   workflow_dispatch:
+concurrency:
+  group: handtracking-vrbox-main
+  cancel-in-progress: true
 permissions:
   contents: write
 jobs:
@@ -27,6 +30,8 @@ jobs:
           if(!html.includes('Modo VR Box'))throw Error('Modo VR Box ausente');
           console.log('JavaScript e modo VR Box verificados');
           NODE
+      - name: Testar direcao e deteccao das maos
+        run: node hand-tracking-vrbox/tests/tracking.test.cjs
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -47,16 +52,20 @@ jobs:
           cp hand-tracking-vrbox/app/build/outputs/apk/debug/app-debug.apk HandTrackingVRBox.apk
           test -s HandTrackingVRBox.apk
           unzip -t HandTrackingVRBox.apk >/dev/null
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose HandTrackingVRBox.apk
           ls -lh HandTrackingVRBox.apk
       - uses: actions/upload-artifact@v4
         with:
           name: HandTrackingVRBox-APK
           path: HandTrackingVRBox.apk
+      - name: Evitar publicar compilacao antiga
+        run: |
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$GITHUB_SHA"
       - name: Publicar APK na aba Releases
         uses: softprops/action-gh-release@v2
         with:
           tag_name: handtracking-vrbox-auto
           name: Hand Tracking VR Box - APK automatico
-          body: 'APK de teste gerado automaticamente a partir do HTML Hand Tracking VR com modo VR Box e otimizacoes. Requer camera, acesso a internet para MediaPipe e Android WebView atualizado.'
+          body: 'Versao 1.1: direcao visual mais rapida e rastreamento de maos mais estavel. Compilacao automatica de teste. Requer camera, acesso a internet para MediaPipe e Android WebView atualizado.'
           files: HandTrackingVRBox.apk
           overwrite_files: true
