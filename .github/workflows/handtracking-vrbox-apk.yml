@@ -1,0 +1,60 @@
+name: Hand Tracking VR Box - APK automatico
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - 'hand-tracking-vrbox/**'
+      - '.github/workflows/handtracking-vrbox-apk.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verificar JavaScript do HTML
+        run: |
+          node - <<'NODE'
+          const fs=require('fs');
+          const html=fs.readFileSync('hand-tracking-vrbox/app/src/main/assets/index.html','utf8');
+          const js=[...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)].map(m=>m[1]).join('\n');
+          new (require('vm').Script)(js);
+          if(!html.includes('Modo VR Box'))throw Error('Modo VR Box ausente');
+          console.log('JavaScript e modo VR Box verificados');
+          NODE
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Instalar SDK Android
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Compilar APK
+        working-directory: hand-tracking-vrbox
+        run: gradle --no-daemon assembleDebug
+      - name: Preparar APK
+        run: |
+          cp hand-tracking-vrbox/app/build/outputs/apk/debug/app-debug.apk HandTrackingVRBox.apk
+          test -s HandTrackingVRBox.apk
+          unzip -t HandTrackingVRBox.apk >/dev/null
+          ls -lh HandTrackingVRBox.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HandTrackingVRBox-APK
+          path: HandTrackingVRBox.apk
+      - name: Publicar APK na aba Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: handtracking-vrbox-auto
+          name: Hand Tracking VR Box - APK automatico
+          body: 'APK de teste gerado automaticamente a partir do HTML Hand Tracking VR com modo VR Box e otimizacoes. Requer camera, acesso a internet para MediaPipe e Android WebView atualizado.'
+          files: HandTrackingVRBox.apk
+          overwrite_files: true
