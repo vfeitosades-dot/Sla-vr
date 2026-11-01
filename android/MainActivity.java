@@ -337,7 +337,11 @@ public class MainActivity extends Activity implements SensorEventListener {
         s.setAllowContentAccess(false);
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         s.setJavaScriptCanOpenWindowsAutomatically(false);
+        s.setSupportMultipleWindows(false);
         // Remote websites never receive the privileged Android JavaScript bridge.
+        browserWeb.setWebChromeClient(new WebChromeClient() {
+            @Override public boolean onCreateWindow(WebView view, boolean dialog, boolean userGesture, android.os.Message resultMsg) { return false; }
+        });
         browserWeb.setWebViewClient(new WebViewClient() {
             @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest req) {
                 return !isRemoteWeb(req.getUrl());
