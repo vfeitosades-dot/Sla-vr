@@ -311,68 +311,116 @@ function drawArrow(){
   xp.moveTo(z,0);xp.lineTo(-z*.7,-z*.8);xp.lineTo(-z*.25,0);xp.lineTo(-z*.7,z*.8);xp.closePath();xp.fill();xp.restore();
 }
 
-/* ---------- MODO VR (VR Box / Cardboard): dois olhos + correção de lente ---------- */
-const vrc=document.createElement('canvas'),vx=vrc.getContext('2d');
-let gl=null,glTex=null,glAsp=null,glTextureW=0,glTextureH=0;
-const vrMaxHeight=480,vrMinHeight=400;
-let vrQualityHeight=vrMaxHeight,vrDraws=0,vrMonitorAt=0,vrFPS=60,vrSlowWindows=0,vrFastWindows=0;
-const perfInfo={drawFPS:0,renderScale:1,trackingFPS:0,handsFPS:0};
-window.__handVRPerformance=perfInfo;
-let gyroCount=0,handCount=0;
+/* ---------- VR BOX 60 FPS ALVO: câmera direta na GPU + overlay único ---------- */
+// Em vez de montar duas cópias completas da câmera em um canvas 2D por frame,
+// envia-se cada frame novo da câmera à GPU uma vez; o painel é outra textura.
+let gl=null,glVideoTex=null,glOverlayTex=null,glAspect=null,glCamAspect=null,glOverlayAspect=null,
+  glOverlayW=0,glOverlayH=0,glVideoW=0,glVideoH=0,glVideoTime=-1;
+let vrQuality=1,vrFrames=0,vrFps=0,vrMeasure=0,vrLastAdjust=0;
+function makeTexture(unit){
+  const tex=gl.createTexture();
+  gl.activeTexture(gl.TEXTURE0+unit);gl.bindTexture(gl.TEXTURE_2D,tex);
+  for(const [p,x] of [[gl.TEXTURE_MIN_FILTER,gl.LINEAR],[gl.TEXTURE_MAG_FILTER,gl.LINEAR],
+    [gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE],[gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE]])gl.texParameteri(gl.TEXTURE_2D,p,x);
+  gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,1,1,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array([0,0,0,255]));
+  return tex;
+}
 function initGL(){
   if(gl)return;
-  gl=glc.getContext('webgl',{alpha:false,antialias:false,depth:false,stencil:false,preserveDrawingBuffer:false,powerPreference:'high-performance'});
-  const sh=(t,src)=>{const o=gl.createShader(t);gl.shaderSource(o,src);gl.compileShader(o);return o};
+  gl=glc.getContext('webgl',{alpha:false,antialias:false,depth:false,stencil:false,
+    preserveDrawingBuffer:false,powerPreference:'high-performance'});
+  if(!gl)throw new Error('WebGL indisponível neste celular');
+  const shader=(type,src)=>{
+    const sh=gl.createShader(type);gl.shaderSource(sh,src);gl.compileShader(sh);
+    if(!gl.getShaderParameter(sh,gl.COMPILE_STATUS))throw new Error('Shader VR: '+gl.getShaderInfoLog(sh));
+    return sh;
+  };
   const pr=gl.createProgram();
-  gl.attachShader(pr,sh(gl.VERTEX_SHADER,'attribute vec2 p;varying vec2 uv;void main(){uv=p*.5+.5;gl_Position=vec4(p,0.,1.);}'));
-  gl.attachShader(pr,sh(gl.FRAGMENT_SHADER,`precision mediump float;varying vec2 uv;uniform sampler2D t;uniform float asp;
-  const float K1=.20,K2=.08,SC=.88;
-  void main(){
-    float e=step(.5,uv.x);
-    vec2 c=(vec2(fract(uv.x*2.),uv.y)-.5)*2.;c.x*=asp;
-    float r2=dot(c,c);
-    vec2 s=c*(1.+K1*r2+K2*r2*r2)*SC;s.x/=asp;
-    vec2 q=s*.5+.5;
-    if(q.x<0.||q.x>1.||q.y<0.||q.y>1.){gl_FragColor=vec4(0.,0.,0.,1.);return;}
-    gl_FragColor=texture2D(t,vec2((q.x+e)*.5,q.y));
-  }`));
-  gl.linkProgram(pr);gl.useProgram(pr);
-  const b=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,b);
+  gl.attachShader(pr,shader(gl.VERTEX_SHADER,'attribute vec2 p;varying vec2 uv;void main(){uv=p*.5+.5;gl_Position=vec4(p,0.,1.);}'));
+  const fragment=[
+    'precision mediump float;',
+    'varying vec2 uv;uniform sampler2D videoTex;uniform sampler2D overlayTex;',
+    'uniform float asp;uniform float camAsp;uniform float overlayAsp;',
+    'const float K1=.20,K2=.08,SC=.88;',
+    'vec2 coverUV(vec2 q,float sourceAspect){',
+    ' if(sourceAspect>asp)q.x=.5+(q.x-.5)*asp/sourceAspect;',
+    ' else q.y=.5+(q.y-.5)*sourceAspect/asp;',
+    ' return q;',
+    '}',
+    'void main(){',
+    ' float eye=step(.5,uv.x);',
+    ' vec2 c=(vec2(fract(uv.x*2.),uv.y)-.5)*2.;c.x*=asp;',
+    ' float r2=dot(c,c);',
+    ' vec2 s=c*(1.+K1*r2+K2*r2*r2)*SC;s.x/=asp;',
+    ' vec2 q=s*.5+.5;',
+    ' if(q.x<0.||q.x>1.||q.y<0.||q.y>1.){gl_FragColor=vec4(0.,0.,0.,1.);return;}',
+    ' vec2 cameraUV=coverUV(q,camAsp);',
+    ' vec2 overlayUV=coverUV(q,overlayAsp);',
+    ' float coverWidth=max(1.,overlayAsp/asp);',
+    ' overlayUV.x+=(eye*2.-1.)*.012/coverWidth;',
+    ' vec4 background=texture2D(videoTex,cameraUV);',
+    ' vec4 foreground=texture2D(overlayTex,overlayUV);',
+    ' gl_FragColor=vec4(mix(background.rgb,foreground.rgb,foreground.a),1.);',
+    '}'
+  ].join('\n');
+  gl.attachShader(pr,shader(gl.FRAGMENT_SHADER,fragment));
+  gl.linkProgram(pr);
+  if(!gl.getProgramParameter(pr,gl.LINK_STATUS))throw new Error('Programa VR não pôde ser vinculado');
+  gl.useProgram(pr);
+  const buffer=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buffer);
   gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
   const loc=gl.getAttribLocation(pr,'p');gl.enableVertexAttribArray(loc);gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
-  glTex=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,glTex);
-  for(const[k,val]of[[gl.TEXTURE_MIN_FILTER,gl.LINEAR],[gl.TEXTURE_MAG_FILTER,gl.LINEAR],[gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE],[gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE]])gl.texParameteri(gl.TEXTURE_2D,k,val);
+  glVideoTex=makeTexture(0);glOverlayTex=makeTexture(1);
+  gl.uniform1i(gl.getUniformLocation(pr,'videoTex'),0);
+  gl.uniform1i(gl.getUniformLocation(pr,'overlayTex'),1);
+  glAspect=gl.getUniformLocation(pr,'asp');
+  glCamAspect=gl.getUniformLocation(pr,'camAsp');
+  glOverlayAspect=gl.getUniformLocation(pr,'overlayAsp');
   gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,true);
-  glAsp=gl.getUniformLocation(pr,'asp');
+  gl.disable(gl.DEPTH_TEST);gl.disable(gl.BLEND);
 }
 function sizeVR(){
-  const d=Math.min(devicePixelRatio||1,1.3),h=Math.min(Math.round(innerHeight*d),vrQualityHeight),w=Math.round(h*innerWidth/innerHeight);
-  if(vrc.width===w&&vrc.height===h)return;
-  vrc.width=glc.width=w;vrc.height=glc.height=h;
-  glTextureW=glTextureH=0;perfInfo.renderScale=h/Math.max(1,Math.round(innerHeight*Math.min(devicePixelRatio||1,1.5)));
-  if(gl){gl.viewport(0,0,w,h);gl.uniform1f(glAsp,(w/2)/h)}
-  msg.textContent=(vr&&innerHeight>innerWidth)?'Gire o celular na horizontal':'';
+  // Limite anterior: 540px de altura. Agora 480px (21% menos pixels).
+  const d=Math.min(devicePixelRatio||1,1.35);
+  const base=Math.min(Math.round(innerHeight*d),480);
+  const h=Math.max(240,Math.round(base*vrQuality/2)*2);
+  const w=Math.max(320,Math.round((h*innerWidth/innerHeight)/2)*2);
+  if(glc.width!==w||glc.height!==h){glc.width=w;glc.height=h;}
+  if(gl){gl.viewport(0,0,w,h);gl.uniform1f(glAspect,(w/2)/h);}
+  msg.textContent=vr&&innerHeight>innerWidth?'Gire o celular na horizontal':'';
 }
 addEventListener('resize',()=>{if(vr)sizeVR()});
-function cover(g,src,sw,sh,dx,dy,dw,dh,shift){
-  const k=Math.max(dw/sw,dh/sh),w=sw*k,h=sh*k;g.drawImage(src,dx+(dw-w)/2+shift,dy+(dh-h)/2,w,h)}
 function drawVR(){
-  const W=vrc.width,H=vrc.height,ew=W/2;
-  vx.fillStyle='#000';vx.fillRect(0,0,W,H);
-  for(let e=0;e<2;e++){
-    const ox=e*ew,dis=(e?-1:1)*ew*.012; // pequena paralaxe no painel = sensação de profundidade
-    vx.save();vx.beginPath();vx.rect(ox,0,ew,H);vx.clip();
-    if(v.readyState>=2)cover(vx,v,v.videoWidth,v.videoHeight,ox,0,ew,H,0);
-    cover(vx,cp,cp.width,cp.height,ox,0,ew,H,dis);
-    vx.globalAlpha=.10;cover(vx,cf,cf.width,cf.height,ox,0,ew,H,0);
-    vx.globalAlpha=.95;cover(vx,co,co.width,co.height,ox,0,ew,H,0);
-    vx.restore();
+  if(!gl||v.readyState<2||!v.videoWidth)return;
+  if(v.currentTime!==glVideoTime){
+    glVideoTime=v.currentTime;
+    gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,glVideoTex);
+    if(glVideoW!==v.videoWidth||glVideoH!==v.videoHeight){
+      gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,v);
+      glVideoW=v.videoWidth;glVideoH=v.videoHeight;
+    }else gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,gl.RGBA,gl.UNSIGNED_BYTE,v);
   }
-  vx.globalAlpha=1;
-  gl.bindTexture(gl.TEXTURE_2D,glTex);
-  if(glTextureW!==vrc.width||glTextureH!==vrc.height){gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,vrc);glTextureW=vrc.width;glTextureH=vrc.height}else gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,gl.RGBA,gl.UNSIGNED_BYTE,vrc);
+  gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,glOverlayTex);
+  if(glOverlayW!==cp.width||glOverlayH!==cp.height){
+    gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,cp);
+    glOverlayW=cp.width;glOverlayH=cp.height;
+  }else gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,gl.RGBA,gl.UNSIGNED_BYTE,cp);
+  gl.uniform1f(glCamAspect,v.videoWidth/v.videoHeight);
+  gl.uniform1f(glOverlayAspect,cp.width/cp.height);
   gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
-  vrDraws++;
+}
+function paintVRHand(g,T){
+  g.save();g.globalAlpha=.13;shape(g,T.P,T.s,0,'#fff');
+  g.globalAlpha=.88;g.strokeStyle='#fff';g.fillStyle='#fff';
+  g.lineCap='round';g.lineJoin='round';g.lineWidth=Math.max(1.5,T.s*.016);
+  g.beginPath();[21,1,2,5,9,13,17].forEach((p,i)=>i?g.lineTo(T.P[p][0],T.P[p][1]):g.moveTo(T.P[p][0],T.P[p][1]));g.closePath();g.stroke();
+  for(const joints of FINGERS){
+    g.beginPath();
+    for(let j=0;j<joints.length;j++){const p=T.P[joints[j]];j?g.lineTo(p[0],p[1]):g.moveTo(p[0],p[1]);}
+    g.stroke();
+  }
+  if(T.pinch){g.beginPath();g.arc(T.pp[0],T.pp[1],T.s*.06,0,Math.PI*2);g.fill();}
+  g.restore();
 }
 async function setVR(on){
   vr=on;R=on?.9:1;for(const c of[cp,cf,co]){c.width=Math.round(CW*R);c.height=Math.round(CH*R)};glc.style.display=on?'block':'none';vrb.style.display=on?'none':'block';
