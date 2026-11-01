@@ -69,7 +69,7 @@
         if (!this._current(run)) return false;
         const model = new global.Hands({ locateFile: file => CDN + file });
         run.model = model;
-        model.setOptions({ maxNumHands: 2, modelComplexity: 0, minDetectionConfidence: 0.65, minTrackingConfidence: 0.65 });
+        model.setOptions({ maxNumHands: 2, modelComplexity: 0, minDetectionConfidence: 0.58, minTrackingConfidence: 0.52 });
         model.onResults(result => {
           if (!this._current(run)) return;
           this.latest = (result.multiHandLandmarks || []).filter(hand => hand.length === 21).map(hand => hand.map(p => ({ x: p.x, y: p.y, z: p.z })));
@@ -106,7 +106,7 @@
     async _tick(run) {
       if (!this._current(run) || run.busy) return;
       if (this.video.readyState < 2 || !this.video.videoWidth || this.video.paused || document.hidden || this.video.currentTime===this.lastVideoTime) {
-        this._schedule(run, 200);
+        this._schedule(run, 65);
         return;
       }
       const started = performance.now();
@@ -128,7 +128,8 @@
         this._close(run);
         return;
       }
-      this._schedule(run, Math.max(180, 300 - (performance.now() - started)));
+      // Schedule immediately after inference finishes, capped near 15 FPS when hardware permits.
+      this._schedule(run, Math.max(0, 68 - (performance.now() - started)));
     }
     stop() {
       const run = this._run;

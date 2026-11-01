@@ -71,12 +71,20 @@ jobs:
                   applicationId 'com.pocket.horizon.ci'
                   minSdk 26
                   targetSdk 34
-                  versionCode 71
-                  versionName '7.0-auto'
+                  versionCode 80
+                  versionName '8.0-auto'
               }
               compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
           }
           GRADLE
+
+      - name: Testar JavaScript e direcao da camera
+        run: |
+          node --check src/app.js
+          node --check src/hands-overlay.js
+          node --check src/tracking.js
+          node src/check_direction.cjs
+          node src/check_camera_budget.cjs
 
       - name: Compilar APK Android
         run: gradle --project-dir ci --no-daemon --stacktrace assembleDebug

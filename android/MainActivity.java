@@ -11,6 +11,9 @@ import android.provider.Settings;
 import android.webkit.*;
 import android.hardware.*;
 import android.view.*;
+import android.widget.*;
+import android.graphics.Color;
+import android.view.inputmethod.EditorInfo;
 import java.io.*;
 import java.util.HashMap;
 import java.util.Map;
@@ -24,6 +27,10 @@ public class MainActivity extends Activity implements SensorEventListener {
     private static final String CAMERA = "android.permission.CAMERA";
     private static final int PICK_MEDIA = 7, CAMERA_PERMISSION = 9;
     private WebView web;
+    private FrameLayout root;
+    private LinearLayout browserPanel;
+    private WebView browserWeb;
+    private EditText browserAddress;
     private volatile Uri mediaUri;
     private volatile String mediaType;
     private PermissionRequest pendingCamera;
@@ -60,8 +67,10 @@ public class MainActivity extends Activity implements SensorEventListener {
             if (rotation == null && accelerometer != null)
                 sensorSource = magnetometer != null ? "accelerometer-magnetometer" : "accelerometer";
         }
+        root = new FrameLayout(this);
         web = new WebView(this);
-        setContentView(web);
+        root.addView(web, new FrameLayout.LayoutParams(-1, -1));
+        setContentView(root);
         WebSettings settings = web.getSettings();
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
@@ -89,7 +98,7 @@ public class MainActivity extends Activity implements SensorEventListener {
             }
             @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 if (isLocal(request.getUrl())) return false;
-                if (request.isForMainFrame()) open(request.getUrl().toString());
+                if (request.isForMainFrame()) openInside(request.getUrl().toString());
                 return true;
             }
         });
@@ -264,13 +273,87 @@ public class MainActivity extends Activity implements SensorEventListener {
                 catch (Exception ignored) { js("if(window.toast)toast('Seletor de arquivos indisponível')"); }
             });
         }
-        @JavascriptInterface public void openExternal(final String url) { runOnUiThread(() -> open(url)); }
+        @JavascriptInterface public void openExternal(final String url) { runOnUiThread(() -> openInside(url)); }
+        @JavascriptInterface public void openInside(final String url) { runOnUiThread(() -> openInside(url)); }
     }
-    private void open(String url) {
-        Uri uri = Uri.parse(url);
-        if (!"https".equals(uri.getScheme()) && !"http".equals(uri.getScheme())) return;
-        try { startActivity(new Intent(Intent.ACTION_VIEW, uri)); }
-        catch (Exception ignored) { js("if(window.toast)toast('Nenhum navegador disponível')"); }
+    private boolean isRemoteWeb(Uri uri) {
+        return uri != null && "https".equalsIgnoreCase(uri.getScheme())
+            && uri.getHost() != null && !isLocal(uri);
+    }
+    private void openInside(String url) {
+        if (url == null) return;
+        String input = url.trim();
+        if (!input.contains("://")) input = "https://" + input;
+        Uri uri;
+        try { uri = Uri.parse(input); } catch (Exception ignored) { return; }
+        if (!isRemoteWeb(uri)) {
+            Toast.makeText(this, "Use endereço HTTPS para abrir dentro do app.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (browserPanel == null) createBrowser();
+        browserPanel.setVisibility(View.VISIBLE);
+        browserWeb.loadUrl(uri.toString());
+        browserAddress.setText(uri.toString());
+        browserAddress.clearFocus();
+    }
+    private Button browserButton(String label, Runnable action) {
+        Button button = new Button(this);
+        button.setText(label);
+        button.setTextSize(12);
+        button.setAllCaps(false);
+        button.setOnClickListener(v -> action.run());
+        return button;
+    }
+    private void createBrowser() {
+        browserPanel = new LinearLayout(this);
+        browserPanel.setOrientation(LinearLayout.VERTICAL);
+        browserPanel.setBackgroundColor(Color.rgb(13, 29, 38));
+        LinearLayout controls = new LinearLayout(this);
+        controls.setOrientation(LinearLayout.HORIZONTAL);
+        controls.setBackgroundColor(Color.rgb(22, 45, 58));
+        controls.addView(browserButton("‹", () -> { if (browserWeb.canGoBack()) browserWeb.goBack(); else closeBrowser(); }));
+        controls.addView(browserButton("↻", () -> browserWeb.reload()));
+        browserAddress = new EditText(this);
+        browserAddress.setSingleLine(true);
+        browserAddress.setTextSize(12);
+        browserAddress.setTextColor(Color.WHITE);
+        browserAddress.setHintTextColor(Color.LTGRAY);
+        browserAddress.setHint("https://...");
+        browserAddress.setInputType(17); // TYPE_CLASS_TEXT | TYPE_TEXT_VARIATION_URI
+        browserAddress.setImeOptions(EditorInfo.IME_ACTION_GO);
+        browserAddress.setOnEditorActionListener((v, actionId, event) -> {
+            if (actionId == EditorInfo.IME_ACTION_GO) { openInside(browserAddress.getText().toString()); return true; }
+            return false;
+        });
+        controls.addView(browserAddress, new LinearLayout.LayoutParams(0, -2, 1));
+        controls.addView(browserButton("Ir", () -> openInside(browserAddress.getText().toString())));
+        controls.addView(browserButton("✕", this::closeBrowser));
+        browserPanel.addView(controls, new LinearLayout.LayoutParams(-1, -2));
+        browserWeb = new WebView(this);
+        WebSettings s = browserWeb.getSettings();
+        s.setJavaScriptEnabled(true);
+        s.setDomStorageEnabled(true);
+        s.setAllowFileAccess(false);
+        s.setAllowContentAccess(false);
+        s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
+        s.setJavaScriptCanOpenWindowsAutomatically(false);
+        // Remote websites never receive the privileged Android JavaScript bridge.
+        browserWeb.setWebViewClient(new WebViewClient() {
+            @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest req) {
+                return !isRemoteWeb(req.getUrl());
+            }
+            @Override public void onPageFinished(WebView view, String url) {
+                if (browserAddress != null && !browserAddress.hasFocus()) browserAddress.setText(url);
+            }
+        });
+        browserPanel.addView(browserWeb, new LinearLayout.LayoutParams(-1, 0, 1));
+        root.addView(browserPanel, new FrameLayout.LayoutParams(-1, -1));
+    }
+    private void closeBrowser() {
+        if (browserPanel != null) {
+            browserPanel.setVisibility(View.GONE);
+            if (browserWeb != null) browserWeb.loadUrl("about:blank");
+        }
     }
     @Override protected void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request, result, data);
@@ -362,10 +445,11 @@ public class MainActivity extends Activity implements SensorEventListener {
         }
         super.onPause();
     }
-    @Override public void onBackPressed() { js("if(window.onNativeBack)window.onNativeBack();else if(typeof navigate==='function')navigate('apps')"); }
+    @Override public void onBackPressed() { if (browserPanel != null && browserPanel.getVisibility() == View.VISIBLE) { if (browserWeb.canGoBack()) browserWeb.goBack(); else closeBrowser(); return; } js("if(window.onNativeBack)window.onNativeBack();else if(typeof navigate==='function')navigate('apps')"); }
     @Override protected void onDestroy() {
         if (sensors != null) sensors.unregisterListener(this);
         if (pendingCamera != null) { pendingCamera.deny(); pendingCamera = null; }
+        if (browserWeb != null) { browserWeb.destroy(); browserWeb = null; }
         if (web != null) { web.removeJavascriptInterface("Android"); web.destroy(); web = null; }
         super.onDestroy();
     }
