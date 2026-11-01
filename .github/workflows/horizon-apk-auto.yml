@@ -9,6 +9,10 @@ on:
       - 'android/**'
       - '.github/workflows/horizon-apk-auto.yml'
 
+concurrency:
+  group: horizon-vr-auto-main
+  cancel-in-progress: true
+
 permissions:
   contents: write
 
@@ -114,6 +118,11 @@ jobs:
         continue-on-error: true
         run: |
           set -euo pipefail
+          # Never let a slower, older run overwrite the newest APK.
+          if [ "$(git ls-remote origin refs/heads/main | cut -f1)" != "$GITHUB_SHA" ]; then
+            echo 'Skipping release: repository changed since this build.'
+            exit 0
+          fi
           if ! gh release view horizon-auto >/dev/null 2>&1; then
             gh release create horizon-auto --target "$GITHUB_SHA" --title 'Horizon Pocket VR - APK automatico' --notes 'Versao de teste gerada automaticamente. Pacote com identificador .ci para instalacao paralela; ainda requer teste no celular.' --prerelease
           fi
