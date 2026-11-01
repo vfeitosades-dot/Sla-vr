@@ -1,0 +1,79 @@
+name: Hand Tracking VR - APK
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'hand-tracking-vr/**'
+      - '.github/workflows/hand-tracking-vr-apk.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: hand-tracking-vr-build
+  cancel-in-progress: true
+permissions:
+  contents: write
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: ''
+      - name: Android platform
+        run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Validar HTML e JavaScript
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          source=Path('hand-tracking-vr/app/src/main/assets/index.html').read_text()
+          scripts=re.findall(r'<script>(.*?)</script>',source,re.S)
+          assert len(scripts)==1, 'Script inline nao encontrado'
+          Path('/tmp/hand-tracking-check.js').write_text(scripts[0])
+          for token in ['vrScale','gl.texSubImage2D','setVR(on)','HandTrackingApp','gyroStep(v)']:
+              assert token in source, token
+          PY
+          node --check /tmp/hand-tracking-check.js
+      - name: Compilar APK
+        run: gradle --project-dir hand-tracking-vr --no-daemon assembleDebug
+      - name: Verificar assinatura
+        run: |
+          cp hand-tracking-vr/app/build/outputs/apk/debug/app-debug.apk HandTrackingVR-VRBox.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose HandTrackingVR-VRBox.apk
+          sha256sum HandTrackingVR-VRBox.apk
+      - name: APK para baixar em Actions
+        uses: actions/upload-artifact@v4
+        with:
+          name: HandTrackingVR-VRBox
+          path: HandTrackingVR-VRBox.apk
+          retention-days: 30
+      - name: Link direto via GitHub Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$(git ls-remote origin refs/heads/main | cut -f1)" != "$GITHUB_SHA" ]; then
+            echo "Build antigo, nao atualizar Release"
+            exit 0
+          fi
+          if ! gh release view hand-tracking-vr >/dev/null 2>&1; then
+            gh release create hand-tracking-vr --target "$GITHUB_SHA" \
+              --title "Hand Tracking VR - VR Box" \
+              --notes "APK Android de teste com modo VR Box e renderizacao otimizada. O modelo de maos requer internet no primeiro uso." --prerelease
+          fi
+          gh release upload hand-tracking-vr HandTrackingVR-VRBox.apk --clobber
