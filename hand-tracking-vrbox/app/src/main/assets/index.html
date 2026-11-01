@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Hand Tracking VR</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>
+:root{color-scheme:dark;--bg:#05070d;--fg:#e8f4ff}
+html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,sans-serif;overflow:hidden;touch-action:none}
+#stage{position:fixed;inset:0}
+video,canvas{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+#cf{opacity:.10}#co{opacity:.95}
+#glc{position:fixed;inset:0;width:100%;height:100%;display:none;z-index:6;background:#000}
+#vrb{display:none;left:auto;right:16px;transform:none;padding:10px 14px;font-size:13px;background:rgba(255,255,255,.16);color:#fff;border:1px solid rgba(255,255,255,.45);backdrop-filter:blur(6px)}
+#msg{position:fixed;left:0;right:0;top:calc(env(safe-area-inset-top,0px) + 12px);text-align:center;font-size:14px;z-index:5;text-shadow:0 1px 4px #000}
+button{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 24px);transform:translateX(-50%);z-index:5;background:#fff;color:#000;border:0;border-radius:999px;padding:14px 28px;font-size:16px;font-weight:600}
+</style>
+</head>
+<body>
+<div id="stage">
+<video id="v" playsinline muted></video>
+<canvas id="cp"></canvas><canvas id="cf"></canvas><canvas id="co"></canvas>
+</div>
+<canvas id="glc"></canvas>
+<div id="msg">Toque em Iniciar e permita a câmera</div>
+<button id="go">Iniciar</button>
+<button id="vrb">🥽 Modo VR Box</button>
+<script>
+const $=id=>document.getElementById(id);
+const vrb=$('vrb'),glc=$('glc');
+const v=$('v'),cp=$('cp'),cf=$('cf'),co=$('co'),msg=$('msg'),go=$('go');
+const xp=cp.getContext('2d'),xf=cf.getContext('2d'),xo=co.getContext('2d');
+let CW=640,CH=480;let R=1; // resolução interna dos desenhos (mais nítida)
+
+/* ---------- filtro One Euro ---------- */
+class OE{constructor(mc,beta,dc=1){this.mc=mc;this.b=beta;this.dc=dc;this.x=null;this.dx=0;this.t=0}
+ a(cut,dt){const r=2*Math.PI*cut*dt;return r/(r+1)}
+ f(val,t){if(this.x===null){this.x=val;this.t=t;return val}
+  const dt=Math.max(t-this.t,1e-3);this.t=t;
+  const d=(val-this.x)/dt;this.dx+=this.a(this.dc,dt)*(d-this.dx);
+  this.x+=this.a(this.mc+this.b*Math.abs(this.dx),dt)*(val-this.x);return this.x}}
+
+/* ---------- 3D mínimo ---------- */
+const sub=(a,b)=>[a[0]-b[0],a[1]-b[1],a[2]-b[2]];
+const dot=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
+const crs=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
+const nrm=a=>{const l=Math.hypot(a[0],a[1],a[2])||1;return[a[0]/l,a[1]/l,a[2]/l]};
+const d3=(a,b)=>Math.hypot(a[0]-b[0],a[1]-b[1],a[2]-b[2]);
+const dot4=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2]+a[3]*b[3];
+const qmul=(a,b)=>[a[0]*b[0]-a[1]*b[1]-a[2]*b[2]-a[3]*b[3],a[0]*b[1]+a[1]*b[0]+a[2]*b[3]-a[3]*b[2],a[0]*b[2]-a[1]*b[3]+a[2]*b[0]+a[3]*b[1],a[0]*b[3]+a[1]*b[2]-a[2]*b[1]+a[3]*b[0]];
+const qconj=a=>[a[0],-a[1],-a[2],-a[3]];
+const qnl=(a,b,k)=>{if(dot4(a,b)<0)b=b.map(n=>-n);const r=a.map((n,i)=>n+(b[i]-n)*k);const l=Math.hypot(r[0],r[1],r[2],r[3])||1;return r.map(n=>n/l)};
+function handQuat(P){
+  const xh=nrm(sub(P[5],P[17])),yr=sub(P[9],P[0]);
+  const yh=nrm(sub(yr,xh.map(n=>n*dot(yr,xh)))),zh=crs(xh,yh);
+  const m00=xh[0],m01=yh[0],m02=zh[0],m10=xh[1],m11=yh[1],m12=zh[1],m20=xh[2],m21=yh[2],m22=zh[2];
+  const tr=m00+m11+m22;let w,x,y,z,S;
+  if(tr>0){S=Math.sqrt(tr+1)*2;w=.25*S;x=(m21-m12)/S;y=(m02-m20)/S;z=(m10-m01)/S}
+  else if(m00>m11&&m00>m22){S=Math.sqrt(1+m00-m11-m22)*2;w=(m21-m12)/S;x=.25*S;y=(m01+m10)/S;z=(m02+m20)/S}
+  else if(m11>m22){S=Math.sqrt(1+m11-m00-m22)*2;w=(m02-m20)/S;x=(m01+m10)/S;y=.25*S;z=(m12+m21)/S}
+  else{S=Math.sqrt(1+m22-m00-m11)*2;w=(m10-m01)/S;x=(m02+m20)/S;y=(m12+m21)/S;z=.25*S}
+  return[w,x,y,z]}
+function qmat(q){const[w,x,y,z]=q;return[[1-2*(y*y+z*z),2*(x*y-w*z),2*(x*z+w*y)],[2*(x*y+w*z),1-2*(x*x+z*z),2*(y*z-w*x)],[2*(x*z-w*y),2*(y*z+w*x),1-2*(x*x+y*y)]]}
+
+/* ---------- rastreio ---------- */
+let tracks=[];const VMAX=4000;
+const FINGERS=[[1,2,3,4],[5,6,7,8],[9,10,11,12],[13,14,15,16],[17,18,19,20]];
+const W=[[.23,.20,.17],[.16,.145,.13],[.16,.145,.13],[.15,.135,.12],[.13,.12,.105]];
+
+function newTrack(raw,t){
+  const T={F:raw.map(()=>[new OE(.9,.08),new OE(.9,.08),new OE(.5,.02)]),pinch:false,s:0,tm:t,seen:t,born:t,alpha:0};
+  T.f=raw.map(p=>p.slice());T.c=raw.map(p=>p.slice());T.cur=T.c;T.v=raw.map(()=>[0,0,0]);
+  T.qr=handQuat(T.f);T.q=T.qr;return T}
+
+function onLandmarks(L){
+  const t=performance.now()/1000,used=new Set();
+  L.forEach(h=>{
+    const raw=h.map(p=>[p.x*CW,p.y*CH,p.z*CW]);
+    let best=null,bd=CW*.35;
+    for(const T of tracks){if(used.has(T))continue;
+      const d=Math.hypot(T.f[0][0]-raw[0][0],T.f[0][1]-raw[0][1]);
+      if(d<bd){bd=d;best=T}}
+    if(!best){if(tracks.length>=2)return;best=newTrack(raw,t);tracks.push(best)}
+    used.add(best);
+    const dt=Math.max(t-best.tm,1e-3);
+    for(let j=0;j<21;j++)for(let a=0;a<3;a++){
+      const nf=best.F[j][a].f(raw[j][a],t);
+      const nv=Math.max(-VMAX,Math.min(VMAX,(nf-best.f[j][a])/dt));
+      best.v[j][a]=best.v[j][a]*.4+nv*.6;best.f[j][a]=nf}
+    best.tm=t;best.seen=t;best.qr=handQuat(best.f);
+  });
+}
+
+function shape(g,P,s,extra,color){
+  g.lineCap='round';g.lineJoin='round';g.strokeStyle=color;g.fillStyle=color;
+  g.beginPath();[21,1,2,5,9,13,17].forEach((i,k)=>k?g.lineTo(P[i][0],P[i][1]):g.moveTo(P[i][0],P[i][1]));
+  g.closePath();g.lineWidth=s*.26+extra*2;g.stroke();g.fill();
+  FINGERS.forEach((f,fi)=>{for(let k=0;k<3;k++){
+    g.lineWidth=s*W[fi][k]+extra*2;g.beginPath();g.moveTo(P[f[k]][0],P[f[k]][1]);g.lineTo(P[f[k+1]][0],P[f[k+1]][1]);g.stroke()}});
+}
+
+/* ---------- painel 3D ---------- */
+const panel={x:0,y:0,tx:0,ty:0,w:0,h:0,q:[1,0,0,0],grab:null,init:false,poly:[]};
+function buildPoly(){
+  const hw=panel.w/2,hh=panel.h/2,r=Math.min(hw,hh)*.16,pts=[];
+  [[hw-r,hh-r,0],[-hw+r,hh-r,90],[-hw+r,-hh+r,180],[hw-r,-hh+r,270]].forEach(([cx,cy,a0])=>{
+    for(let i=0;i<=6;i++){const a=(a0+i*15)*Math.PI/180;pts.push([cx+Math.cos(a)*r,cy+Math.sin(a)*r,0])}});
+  panel.poly=pts}
+function project(M,p,F){
+  const x=M[0][0]*p[0]+M[0][1]*p[1]+M[0][2]*p[2],y=M[1][0]*p[0]+M[1][1]*p[1]+M[1][2]*p[2],z=M[2][0]*p[0]+M[2][1]*p[1]+M[2][2]*p[2];
+  const k=F/(F+z);return[panel.x+x*k,panel.y+y*k]}
+function polyPath(g,pts){g.beginPath();pts.forEach((p,i)=>i?g.lineTo(p[0],p[1]):g.moveTo(p[0],p[1]));g.closePath()}
+
+
+/* ---------- GIROSCÓPIO VISUAL (sem sensor): rotação da câmera pelo movimento da imagem ---------- */
+const FOVL=70; // campo de visão do lado maior da câmera (graus)
+const gy={yaw:0,pitch:0,roll:0,ok:false,n:0,tot:0,ptx:0,pty:0,sw:0,sh:0,f:1,sc:1,has:false};
+let sg2=null,started=false;
+function gyroInit(){
+  const k=96/Math.max(CW,CH);gy.sw=Math.round(CW*k);gy.sh=Math.round(CH*k);
+  const c=document.createElement('canvas');c.width=gy.sw;c.height=gy.sh;
+  sg2=c.getContext('2d',{willReadFrequently:true});
+  gy.f=(Math.max(gy.sw,gy.sh)/2)/Math.tan(FOVL*Math.PI/360);gy.sc=CW/gy.sw;
+  gy.prev=new Uint8Array(gy.sw*gy.sh);gy.cur=new Uint8Array(gy.sw*gy.sh);
+}
+function fitSim(P){
+  let use=P,out=null;
+  for(let pass=0;pass<2;pass++){
+    const n=use.length;if(n<6)return null;
+    let mx=0,my=0,mfx=0,mfy=0;for(const q of use){mx+=q[0];my+=q[1];mfx+=q[2];mfy+=q[3]}
+    mx/=n;my/=n;mfx/=n;mfy/=n;let n1=0,n2=0,dn=0;
+    for(const q of use){const x=q[0]-mx,y=q[1]-my,fx=q[2]-mfx,fy=q[3]-mfy;n1+=x*fx+y*fy;n2+=x*fy-y*fx;dn+=x*x+y*y}
+    if(dn<1)return null;
+    const a=n1/dn,b=n2/dn,tx=mfx-a*mx+b*my,ty=mfy-b*mx-a*my;
+    out={a,b,tx,ty,n};
+    if(pass===0){
+      const res=P.map(q=>Math.hypot(q[2]-(a*q[0]-b*q[1]+tx),q[3]-(b*q[0]+a*q[1]+ty)));
+      const med=[...res].sort((p,q)=>p-q)[res.length>>1],thr=Math.max(1,med*2.5);
+      use=P.filter((_,i)=>res[i]<thr);
+    }
+  }
+  return out;
+}
+function ssd(prev,cur,sw,x,y,cx,cy){let t=0;for(let dy=-4;dy<=4;dy++){const a=(y+dy)*sw+x,b=(cy+dy)*sw+cx;for(let dx=-4;dx<=4;dx++){const d=prev[a+dx]-cur[b+dx];t+=d*d}}return t}
+// casamento de blocos (SAD) em pontos de uma grade; ignora pontos sobre as mãos
+function estimateMotion(prev,cur,sw,sh,boxes,px,py){
+  const H=4,SR=5,N=2*SR+1,step=11,mg=H+SR+7,grid=new Int32Array(N*N),pts=[];
+  for(let y=mg;y<sh-mg;y+=step)for(let x=mg;x<sw-mg;x+=step){
+    let hid=false;for(const b of boxes)if(x>b[0]&&x<b[2]&&y>b[1]&&y<b[3]){hid=true;break}
+    if(hid)continue;
+    let sum=0;for(let dy=-H;dy<=H;dy++)for(let dx=-H;dx<=H;dx++)sum+=prev[(y+dy)*sw+x+dx];
+    const mean=sum/81;let dev=0;
+    for(let dy=-H;dy<=H;dy++)for(let dx=-H;dx<=H;dx++)dev+=Math.abs(prev[(y+dy)*sw+x+dx]-mean);
+    if(dev/81<5)continue; // pouca textura
+    let best=1e9,bx=0,by=0;
+    for(let oy=-SR;oy<=SR;oy++)for(let ox=-SR;ox<=SR;ox++){
+      const cx=x+px+ox,cy=y+py+oy;let sad=0;
+      for(let dy=-H;dy<=H;dy++){const a=(y+dy)*sw+x,b=(cy+dy)*sw+cx;
+        for(let dx=-H;dx<=H;dx++){const d=prev[a+dx]-cur[b+dx];sad+=d<0?-d:d}
+        if(sad>=best)break}
+      grid[(oy+SR)*N+ox+SR]=sad;if(sad<best){best=sad;bx=ox;by=oy}}
+    if(best/81>16)continue;
+    let fx=px+bx,fy=py+by;
+    const X0=x+px+bx,Y0=y+py+by,c0=ssd(prev,cur,sw,x,y,X0,Y0); // refino sub-pixel (parábola no erro quadrático)
+    if(bx>-SR&&bx<SR){const l=ssd(prev,cur,sw,x,y,X0-1,Y0),r=ssd(prev,cur,sw,x,y,X0+1,Y0),dn=l-2*c0+r;if(dn>0)fx+=.5*(l-r)/dn}
+    if(by>-SR&&by<SR){const u=ssd(prev,cur,sw,x,y,X0,Y0-1),d=ssd(prev,cur,sw,x,y,X0,Y0+1),dn=u-2*c0+d;if(dn>0)fy+=.5*(u-d)/dn}
+    pts.push([x-sw/2,y-sh/2,fx,fy]);
+  }
+  return{pts,m:fitSim(pts)};
+}
+function gyroStep(vid){
+  const{sw,sh}=gy;sg2.drawImage(vid,0,0,sw,sh);
+  const d=sg2.getImageData(0,0,sw,sh).data,cur=gy.cur;
+  for(let i=0,j=0;i<cur.length;i++,j+=4)cur[i]=(d[j]*77+d[j+1]*150+d[j+2]*29)>>8;
+  if(!gy.has){gy.prev.set(cur);gy.has=true;return null}
+  const boxes=tracks.map(T=>{let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
+    for(const p of T.c){if(p[0]<x0)x0=p[0];if(p[0]>x1)x1=p[0];if(p[1]<y0)y0=p[1];if(p[1]>y1)y1=p[1]}
+    const m=T.s*.5;return[(x0-m)/gy.sc,(y0-m)/gy.sc,(x1+m)/gy.sc,(y1+m)/gy.sc]});
+  const px=Math.max(-7,Math.min(7,Math.round(gy.ptx))),py=Math.max(-7,Math.min(7,Math.round(gy.pty)));
+  const{pts,m}=estimateMotion(gy.prev,cur,sw,sh,boxes,px,py);
+  gy.prev.set(cur);gy.tot=pts.length;
+  if(!m||m.n/pts.length<.5){gy.ok=false;gy.n=0;gy.ptx*=.5;gy.pty*=.5;return null}
+  gy.ok=true;gy.n=m.n;gy.ptx=m.tx;gy.pty=m.ty;
+  let th=Math.atan2(m.b,1+m.a),tx=m.tx,ty=m.ty;
+  if(Math.abs(tx)<.07)tx=0;if(Math.abs(ty)<.07)ty=0;if(Math.abs(th)<.0007)th=0; // zona morta: evita deriva por ruído
+  const D=180/Math.PI;
+  gy.yaw=(gy.yaw-Math.atan2(tx,gy.f)*D+360)%360;                    // virar à direita aumenta
+  gy.pitch=Math.max(-90,Math.min(90,gy.pitch+Math.atan2(ty,gy.f)*D)); // olhar para cima aumenta
+  gy.roll=((gy.roll-th*D+540)%360)-180;                              // inclinar p/ direita aumenta
+  return{tx:tx*gy.sc,ty:ty*gy.sc,th};
+}
+// o painel fica "preso ao mundo": acompanha o movimento da câmera
+function applyCam(mo){
+  if(!mo)return;
+  const cx=CW/2,cy=CH/2,c=Math.cos(mo.th),s=Math.sin(mo.th);
+  for(const[kx,ky]of[['x','y'],['tx','ty']]){
+    const X=panel[kx]-cx,Y=panel[ky]-cy;
+    panel[kx]=cx+X*c-Y*s+mo.tx;panel[ky]=cy+X*s+Y*c+mo.ty}
+  panel.q=qmul([Math.cos(mo.th/2),0,0,Math.sin(mo.th/2)],panel.q);
+}
+function recenter(){gy.yaw=gy.pitch=gy.roll=0;panel.grab=null;panel.q=[1,0,0,0];panel.x=panel.tx=CW/2;panel.y=panel.ty=CH/2}
+
+/* ---------- tamanho da câmera / orientação ---------- */
+function applyVideoSize(){
+  CW=v.videoWidth;CH=v.videoHeight;
+  for(const c of[cp,cf,co]){c.width=Math.round(CW*R);c.height=Math.round(CH*R)}
+  gyroInit();tracks=[];panel.init=false;panel.grab=null;
+}
+
+/* ---------- seta discreta: só aparece se o painel sair da tela ---------- */
+let vr=false;
+function drawArrow(){
+  if(!panel.init)return;
+  const A=vr?(innerWidth/2)/innerHeight:innerWidth/innerHeight;
+  let vw,vh;if(CW/CH>A){vh=CH;vw=CH*A}else{vw=CW;vh=CW/A}
+  const cx=CW/2,cy=CH/2,dx=panel.x-cx,dy=panel.y-cy;
+  if(Math.abs(dx)<vw/2-10&&Math.abs(dy)<vh/2-10)return;
+  const m=Math.min(vw,vh)*.06+10,z=Math.min(vw,vh)*.035;
+  const t=Math.min((vw/2-m)/(Math.abs(dx)||1e-6),(vh/2-m)/(Math.abs(dy)||1e-6));
+  xp.save();xp.translate(cx+dx*t,cy+dy*t);xp.rotate(Math.atan2(dy,dx));
+  xp.fillStyle='rgba(255,255,255,.9)';xp.beginPath();
+  xp.moveTo(z,0);xp.lineTo(-z*.7,-z*.8);xp.lineTo(-z*.25,0);xp.lineTo(-z*.7,z*.8);xp.closePath();xp.fill();xp.restore();
+}
+
+/* ---------- MODO VR (VR Box / Cardboard): dois olhos + correção de lente ---------- */
+const vrc=document.createElement('canvas'),vx=vrc.getContext('2d');
+let gl=null,glTex=null,glAsp=null,glTextureW=0,glTextureH=0;
+function initGL(){
+  if(gl)return;
+  gl=glc.getContext('webgl',{alpha:false,antialias:false});
+  const sh=(t,src)=>{const o=gl.createShader(t);gl.shaderSource(o,src);gl.compileShader(o);return o};
+  const pr=gl.createProgram();
+  gl.attachShader(pr,sh(gl.VERTEX_SHADER,'attribute vec2 p;varying vec2 uv;void main(){uv=p*.5+.5;gl_Position=vec4(p,0.,1.);}'));
+  gl.attachShader(pr,sh(gl.FRAGMENT_SHADER,`precision mediump float;varying vec2 uv;uniform sampler2D t;uniform float asp;
+  const float K1=.20,K2=.08,SC=.88;
+  void main(){
+    float e=step(.5,uv.x);
+    vec2 c=(vec2(fract(uv.x*2.),uv.y)-.5)*2.;c.x*=asp;
+    float r2=dot(c,c);
+    vec2 s=c*(1.+K1*r2+K2*r2*r2)*SC;s.x/=asp;
+    vec2 q=s*.5+.5;
+    if(q.x<0.||q.x>1.||q.y<0.||q.y>1.){gl_FragColor=vec4(0.,0.,0.,1.);return;}
+    gl_FragColor=texture2D(t,vec2((q.x+e)*.5,q.y));
+  }`));
+  gl.linkProgram(pr);gl.useProgram(pr);
+  const b=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,b);
+  gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+  const loc=gl.getAttribLocation(pr,'p');gl.enableVertexAttribArray(loc);gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
+  glTex=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,glTex);
+  for(const[k,val]of[[gl.TEXTURE_MIN_FILTER,gl.LINEAR],[gl.TEXTURE_MAG_FILTER,gl.LINEAR],[gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE],[gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE]])gl.texParameteri(gl.TEXTURE_2D,k,val);
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,true);
+  glAsp=gl.getUniformLocation(pr,'asp');
+}
+function sizeVR(){
+  const d=Math.min(devicePixelRatio||1,1.5),h=Math.min(Math.round(innerHeight*d),540),w=Math.round(h*innerWidth/innerHeight);
+  vrc.width=glc.width=w;vrc.height=glc.height=h;
+  if(gl){gl.viewport(0,0,w,h);gl.uniform1f(glAsp,(w/2)/h)}
+  msg.textContent=(vr&&innerHeight>innerWidth)?'Gire o celular na horizontal':'';
+}
+addEventListener('resize',()=>{if(vr)sizeVR()});
+function cover(g,src,sw,sh,dx,dy,dw,dh,shift){
+  const k=Math.max(dw/sw,dh/sh),w=sw*k,h=sh*k;g.drawImage(src,dx+(dw-w)/2+shift,dy+(dh-h)/2,w,h)}
+function drawVR(){
+  const W=vrc.width,H=vrc.height,ew=W/2;
+  vx.fillStyle='#000';vx.fillRect(0,0,W,H);
+  for(let e=0;e<2;e++){
+    const ox=e*ew,dis=(e?-1:1)*ew*.012; // pequena paralaxe no painel = sensação de profundidade
+    vx.save();vx.beginPath();vx.rect(ox,0,ew,H);vx.clip();
+    if(v.readyState>=2)cover(vx,v,v.videoWidth,v.videoHeight,ox,0,ew,H,0);
+    cover(vx,cp,cp.width,cp.height,ox,0,ew,H,dis);
+    vx.globalAlpha=.10;cover(vx,cf,cf.width,cf.height,ox,0,ew,H,0);
+    vx.globalAlpha=.95;cover(vx,co,co.width,co.height,ox,0,ew,H,0);
+    vx.restore();
+  }
+  vx.globalAlpha=1;
+  gl.bindTexture(gl.TEXTURE_2D,glTex);
+  if(glTextureW!==vrc.width||glTextureH!==vrc.height){gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,vrc);glTextureW=vrc.width;glTextureH=vrc.height}else gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,gl.RGBA,gl.UNSIGNED_BYTE,vrc);
+  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+}
+async function setVR(on){
+  vr=on;R=on?1:1.15;for(const c of[cp,cf,co]){c.width=Math.round(CW*R);c.height=Math.round(CH*R)};glc.style.display=on?'block':'none';vrb.style.display=on?'none':'block';
+  if(on){
+    initGL();sizeVR();
+    try{await document.documentElement.requestFullscreen({navigationUI:'hide'})}catch(e){}
+    try{await screen.orientation.lock('landscape')}catch(e){}
+    sizeVR();
+  }else{
+    msg.textContent='';
+    try{screen.orientation.unlock()}catch(e){}
+    try{if(document.fullscreenElement)await document.exitFullscreen()}catch(e){}
+  }
+}
+vrb.onclick=()=>setVR(true);
+
+/* ---------- gestos: segurar = recentrar · toque duplo = sair do VR ---------- */
+let pressT=null,lastTap=0;
+document.addEventListener('pointerdown',e=>{if(e.target.closest('button'))return;clearTimeout(pressT);pressT=setTimeout(()=>{pressT=null;recenter()},700)});
+document.addEventListener('pointerup',()=>{if(pressT){clearTimeout(pressT);pressT=null;const n=Date.now();if(vr&&n-lastTap<350)setVR(false);lastTap=n}});
+document.addEventListener('pointercancel',()=>{clearTimeout(pressT);pressT=null});
+
+let lastMsg='',mode='',lastVRDraw=0;
+function render(now){
+  const dt=Math.min((now-render.last)/1000,.05);render.last=now;
+  const t=now/1000,k=1-Math.exp(-dt*45),kq=1-Math.exp(-dt*20);
+  tracks=tracks.filter(T=>t-T.seen<.5);
+  if(panel.grab&&!tracks.includes(panel.grab.T))panel.grab=null;
+  xp.setTransform(R,0,0,R,0,0);xf.setTransform(R,0,0,R,0,0);xo.setTransform(R,0,0,R,0,0);
+  xp.clearRect(0,0,CW,CH);xf.clearRect(0,0,CW,CH);xo.clearRect(0,0,CW,CH);
+  let hover=false;
+
+  for(const T of tracks){
+    const el=Math.min(t-T.tm,.07);
+    for(let j=0;j<21;j++){const p=T.c[j];for(let a=0;a<3;a++){const pr=T.f[j][a]+T.v[j][a]*el*.9;p[a]+=(pr-p[a])*k}}
+    T.q=qnl(T.q,T.qr,kq);
+    const w=T.c[0],m=T.c[9];
+    T.P=T.c.slice(0,21);T.P[21]=[w[0]+(w[0]-m[0])*.8,w[1]+(w[1]-m[1])*.8,w[2]];
+    const sr=Math.max(d3(T.c[0],T.c[9]),d3(T.c[5],T.c[17])*1.1);
+    T.s=T.s?T.s+(sr-T.s)*(1-Math.exp(-dt*10)):sr;
+    const d=Math.hypot(T.c[4][0]-T.c[8][0],T.c[4][1]-T.c[8][1],(T.c[4][2]-T.c[8][2])*.5)/T.s,was=T.pinch;
+    T.pinch=was?d<.45:d<.28;
+    T.pp=[(T.c[4][0]+T.c[8][0])/2,(T.c[4][1]+T.c[8][1])/2];
+    const mg=T.s*.35;
+    const near=Math.abs(T.pp[0]-panel.x)<panel.w/2+mg&&Math.abs(T.pp[1]-panel.y)<panel.h/2+mg;
+    if(near)hover=true;
+    if(T.pinch&&!was&&!panel.grab&&near)panel.grab={T,ox:panel.tx-T.pp[0],oy:panel.ty-T.pp[1],qh0:T.q,qp0:panel.q};
+    if(!T.pinch&&panel.grab&&panel.grab.T===T)panel.grab=null;
+  }
+  if(!panel.init){panel.w=CW*.6;panel.h=CW*.42;panel.x=panel.tx=CW/2;panel.y=panel.ty=CH/2;buildPoly();panel.init=true}
+  if(panel.grab){
+    const G=panel.grab,p=G.T.pp;
+    panel.tx=Math.min(CW*.9,Math.max(CW*.1,p[0]+G.ox));
+    panel.ty=Math.min(CH*.9,Math.max(CH*.1,p[1]+G.oy));
+    panel.q=qnl(panel.q,qmul(qmul(G.T.q,qconj(G.qh0)),G.qp0),1-Math.exp(-dt*22));
+  }
+  const kp=1-Math.exp(-dt*20);
+  panel.x+=(panel.tx-panel.x)*kp;panel.y+=(panel.ty-panel.y)*kp;
+
+  // painel
+  const M=qmat(panel.q),F=CW*1.3,g=!!panel.grab,face=Math.abs(M[2][2]);
+  const pts=panel.poly.map(p=>project(M,p,F));
+  polyPath(xp,pts);
+  xp.fillStyle=`rgba(255,255,255,${(g?.16:hover?.13:.10)+.10*face})`;xp.fill();
+  xp.lineJoin='round';xp.lineWidth=g?3:2;
+  xp.strokeStyle=g?'rgba(255,255,255,.95)':hover?'rgba(255,255,255,.8)':'rgba(255,255,255,.55)';xp.stroke();
+  const bar=[[-panel.w*.1,panel.h/2-panel.h*.07,0],[panel.w*.1,panel.h/2-panel.h*.07,0]].map(p=>project(M,p,F));
+  xp.beginPath();xp.moveTo(bar[0][0],bar[0][1]);xp.lineTo(bar[1][0],bar[1][1]);xp.lineCap='round';xp.lineWidth=5;xp.strokeStyle='rgba(255,255,255,.7)';xp.stroke();
+
+  drawArrow();
+  // mãos
+  for(const T of tracks){
+    const ow=Math.max(1.5,T.s*.013);
+    shape(xf,T.P,T.s,0,'#fff');
+    shape(xo,T.P,T.s,ow,'#fff');
+    xo.globalCompositeOperation='destination-out';shape(xo,T.P,T.s,0,'#000');
+    xo.globalCompositeOperation='source-over';
+    if(T.pinch){xo.beginPath();xo.arc(T.pp[0],T.pp[1],T.s*.07,0,7);xo.fillStyle='#fff';xo.fill()}
+  }
+  if(vr && (now-lastVRDraw>26)){lastVRDraw=now;drawVR();}
+  requestAnimationFrame(render);
+}
+render.last=performance.now();
+
+const TV='https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.21/';
+const MODEL='https://cdn.jsdelivr.net/npm/expo-vision-camera-v4-mediapipe@1.4.0/hand_landmarker.task';
+async function initTasks(){
+  const {HandLandmarker,FilesetResolver}=await import(TV+'vision_bundle.mjs');
+  const fs=await FilesetResolver.forVisionTasks(TV+'wasm');
+  const mk=d=>HandLandmarker.createFromOptions(fs,{baseOptions:{modelAssetPath:MODEL,delegate:d},runningMode:'VIDEO',numHands:2,minHandDetectionConfidence:.5,minHandPresenceConfidence:.5,minTrackingConfidence:.5});
+  let lm;try{lm=await mk('GPU');mode='GPU'}catch(e){lm=await mk('CPU');mode='CPU'}
+  let lastTs=0;
+  return async vid=>{const ts=Math.max(performance.now(),lastTs+1);lastTs=ts;return lm.detectForVideo(vid,ts).landmarks||[]};
+}
+const loadScript=u=>new Promise((ok,no)=>{const e=document.createElement('script');e.src=u;e.onload=ok;e.onerror=no;document.head.appendChild(e)});
+async function initLegacy(){
+  const B='https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/';
+  await loadScript(B+'hands.js');
+  const hd=new Hands({locateFile:f=>B+f});
+  hd.setOptions({maxNumHands:2,modelComplexity:0,minDetectionConfidence:.55,minTrackingConfidence:.5});
+  let res=[];hd.onResults(r=>{res=r.multiHandLandmarks||[]});
+  const sc=document.createElement('canvas');sc.width=320;sc.height=Math.round(320*CH/CW);const sg=sc.getContext('2d');
+  mode='compatível';
+  return async vid=>{sg.drawImage(vid,0,0,sc.width,sc.height);await hd.send({image:sc});return res};
+}
+
+go.onclick=async()=>{
+  go.style.display='none';msg.textContent='Abrindo a câmera...';
+  try{
+    v.srcObject=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:640,max:960},height:{ideal:480,max:720},frameRate:{ideal:30,max:30}},audio:false});
+    await v.play();
+    applyVideoSize();started=true;vrb.style.display='block';
+    v.addEventListener('resize',()=>{if(v.videoWidth!==CW||v.videoHeight!==CH)applyVideoSize()});
+    try{navigator.wakeLock&&navigator.wakeLock.request('screen')}catch(e){}
+    requestAnimationFrame(render);
+    msg.textContent='Carregando detector (alguns segundos)...';
+    let det;
+    try{det=await initTasks()}catch(e){console.warn(e);det=await initLegacy()}
+    msg.textContent='';
+    let lastT=-1,ema=0,gyTick=0,gyEvery=1;
+    const loop=async()=>{
+      if(v.readyState>=2&&v.currentTime!==lastT){
+        lastT=v.currentTime;const t0=performance.now();
+        try{
+          if(gyTick++%gyEvery===0){const mo=gyroStep(v);if(panel.init&&!panel.grab)applyCam(mo)}
+          onLandmarks(await det(v));
+        }catch(e){console.warn(e)}
+        const dm=performance.now()-t0;ema=ema?ema*.9+dm*.1:dm;gyEvery=ema>29?3:ema>20?2:1; // se pesar, o sensor visual roda em metade dos quadros
+      }
+      v.requestVideoFrameCallback?v.requestVideoFrameCallback(loop):requestAnimationFrame(loop)};
+    loop();
+  }catch(e){msg.textContent='Erro: '+e.message;go.style.display='block'}
+};
+</script>
+</body>
+</html>
