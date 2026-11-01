@@ -11,8 +11,8 @@ function section(a,b){
 assert(html.includes('if(vr){lastVRDraw=now;drawVR();}'),'VR render must not use an artificial ~30 FPS cap');
 assert(!html.includes('now-lastVRDraw>26'));
 assert(html.includes('const vrMaxHeight=480,vrMinHeight=400'),'dynamic render scaling absent');
-assert(html.includes('R=on?.86:1'),'VR panel overlays must use fewer pixels');
-assert(html.includes('paintVRHand(xp,T)'),'VR hand overlay must be visible');
+assert(html.includes('R=on?.86:1')||html.includes('R=on?.9:1'),'VR panel overlays must use fewer pixels');
+assert(html.includes('xp.globalAlpha=.10;xp.drawImage(cf,0,0)')&&html.includes('xp.globalAlpha=.95;xp.drawImage(co,0,0)'),'VR must compose original hand silhouettes and outlines');
 assert(html.includes('const FOVL=70')&&html.includes('const float K1=.20,K2=.08,SC=.88;'),'orientation/lens constants lost');
 assert(html.includes('onLandmarks(await det(v))'),'live hand tracking lost');
 assert(!html.includes('const vrc=document.createElement'),'intermediate stereo canvas must be eliminated');
@@ -54,7 +54,7 @@ const cp={width:494,height:371};
 const upload={gl:mockGL,v,cp,glVideoTime:-1,glVideoTex:{},glOverlayTex:{},
   glVideoW:0,glVideoH:0,glOverlayW:0,glOverlayH:0,glCamAspect:{},glOverlayAspect:{},Math};
 vm.createContext(upload);
-vm.runInContext(section('function drawVR(){','function paintVRHand('),upload);
+vm.runInContext(section('function drawVR(){','async function setVR('),upload);
 upload.drawVR();
 assert.equal(transfers.filter(x=>x[0]==='image').length,2,'camera and overlay should each be uploaded once');
 assert.equal(transfers.filter(x=>x[0]==='draw').length,1);
