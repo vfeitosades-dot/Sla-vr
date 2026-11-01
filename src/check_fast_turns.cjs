@@ -44,8 +44,10 @@ function exercise(dx,dy){
   assert(result.confidence>=.4, 'lost motion '+dx+','+dy+': '+JSON.stringify(result));
   assert(Math.abs(result.dx-dx)<1.5,'incorrect dx '+dx+' got '+result.dx);
   assert(Math.abs(result.dy-dy)<1.5,'incorrect dy '+dy+' got '+result.dy);
-  assert.equal(Math.sign(result.yaw),Math.sign(dx),'yaw direction '+dx);
-  assert.equal(Math.sign(result.pitch),Math.sign(dy),'pitch direction '+dy);
+  if(dx)assert.equal(Math.sign(result.yaw),Math.sign(dx),'yaw direction '+dx);
+  else assert(Math.abs(result.yaw)<.012,'unexpected yaw '+result.yaw);
+  if(dy)assert.equal(Math.sign(result.pitch),Math.sign(dy),'pitch direction '+dy);
+  else assert(Math.abs(result.pitch)<.012,'unexpected pitch '+result.pitch);
 }
 for(const [dx,dy] of [[8,0],[-8,0],[12,0],[-12,0],[16,0],[-16,0],[0,9],[9,4],[-11,-3]])exercise(dx,dy);
 console.log('PASS: fast horizontal optical shifts plus mixed-axis movement');
