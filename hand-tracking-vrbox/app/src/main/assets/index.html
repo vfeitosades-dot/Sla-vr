@@ -68,25 +68,37 @@ const FINGERS=[[1,2,3,4],[5,6,7,8],[9,10,11,12],[13,14,15,16],[17,18,19,20]];
 const W=[[.23,.20,.17],[.16,.145,.13],[.16,.145,.13],[.15,.135,.12],[.13,.12,.105]];
 
 function newTrack(raw,t){
-  const T={F:raw.map(()=>[new OE(.9,.08),new OE(.9,.08),new OE(.5,.02)]),pinch:false,s:0,tm:t,seen:t,born:t,alpha:0};
+  const T={F:raw.map(()=>[new OE(1.05,.12),new OE(1.05,.12),new OE(.7,.035)]),pinch:false,s:0,tm:t,seen:t,born:t,alpha:0};
   T.f=raw.map(p=>p.slice());T.c=raw.map(p=>p.slice());T.cur=T.c;T.v=raw.map(()=>[0,0,0]);
   T.qr=handQuat(T.f);T.q=T.qr;return T}
 
 function onLandmarks(L){
   const t=performance.now()/1000,used=new Set();
   L.forEach(h=>{
+    if(!h||h.length!==21||h.some(p=>!Number.isFinite(p.x)||!Number.isFinite(p.y)||!Number.isFinite(p.z)))return;
     const raw=h.map(p=>[p.x*CW,p.y*CH,p.z*CW]);
-    let best=null,bd=CW*.35;
+    let best=null,bd=CW*.28;
     for(const T of tracks){if(used.has(T))continue;
-      const d=Math.hypot(T.f[0][0]-raw[0][0],T.f[0][1]-raw[0][1]);
+      const age=Math.max(0,Math.min(.06,t-T.tm));
+      const wx=T.f[0][0]+T.v[0][0]*age*.45,wy=T.f[0][1]+T.v[0][1]*age*.45;
+      const wrist=Math.hypot(wx-raw[0][0],wy-raw[0][1]);
+      const palm=Math.hypot(T.f[9][0]-raw[9][0],T.f[9][1]-raw[9][1]);
+      const d=wrist*.7+palm*.3;
       if(d<bd){bd=d;best=T}}
-    if(!best){if(tracks.length>=2)return;best=newTrack(raw,t);tracks.push(best)}
+    if(!best){
+      if(tracks.length>=2){
+        const stale=tracks.find(T=>!used.has(T)&&t-T.seen>.24);
+        if(!stale)return;
+        tracks.splice(tracks.indexOf(stale),1);
+      }
+      best=newTrack(raw,t);tracks.push(best)
+    }
     used.add(best);
     const dt=Math.max(t-best.tm,1e-3);
     for(let j=0;j<21;j++)for(let a=0;a<3;a++){
       const nf=best.F[j][a].f(raw[j][a],t);
       const nv=Math.max(-VMAX,Math.min(VMAX,(nf-best.f[j][a])/dt));
-      best.v[j][a]=best.v[j][a]*.4+nv*.6;best.f[j][a]=nf}
+      best.v[j][a]=best.v[j][a]*.55+nv*.45;best.f[j][a]=nf}
     best.tm=t;best.seen=t;best.qr=handQuat(best.f);
   });
 }
@@ -114,7 +126,7 @@ function polyPath(g,pts){g.beginPath();pts.forEach((p,i)=>i?g.lineTo(p[0],p[1]):
 
 /* ---------- GIROSCÓPIO VISUAL (sem sensor): rotação da câmera pelo movimento da imagem ---------- */
 const FOVL=70; // campo de visão do lado maior da câmera (graus)
-const gy={yaw:0,pitch:0,roll:0,ok:false,n:0,tot:0,ptx:0,pty:0,sw:0,sh:0,f:1,sc:1,has:false};
+const gy={yaw:0,pitch:0,roll:0,ok:false,n:0,tot:0,ptx:0,pty:0,sw:0,sh:0,f:1,sc:1,has:false,quality:0};
 let sg2=null,started=false;
 function gyroInit(){
   const k=96/Math.max(CW,CH);gy.sw=Math.round(CW*k);gy.sh=Math.round(CH*k);
@@ -122,6 +134,10 @@ function gyroInit(){
   sg2=c.getContext('2d',{willReadFrequently:true});
   gy.f=(Math.max(gy.sw,gy.sh)/2)/Math.tan(FOVL*Math.PI/360);gy.sc=CW/gy.sw;
   gy.prev=new Uint8Array(gy.sw*gy.sh);gy.cur=new Uint8Array(gy.sw*gy.sh);
+  gy.hw=gy.sw>>1;gy.hh=gy.sh>>1;
+  gy.smallPrev=new Uint8Array(gy.hw*gy.hh);
+  gy.smallCur=new Uint8Array(gy.hw*gy.hh);
+  gy.has=false;gy.ptx=gy.pty=0;gy.ok=false;
 }
 function fitSim(P){
   let use=P,out=null;
@@ -143,46 +159,117 @@ function fitSim(P){
 }
 function ssd(prev,cur,sw,x,y,cx,cy){let t=0;for(let dy=-4;dy<=4;dy++){const a=(y+dy)*sw+x,b=(cy+dy)*sw+cx;for(let dx=-4;dx<=4;dx++){const d=prev[a+dx]-cur[b+dx];t+=d*d}}return t}
 // casamento de blocos (SAD) em pontos de uma grade; ignora pontos sobre as mãos
-function estimateMotion(prev,cur,sw,sh,boxes,px,py){
-  const H=4,SR=5,N=2*SR+1,step=11,mg=H+SR+7,grid=new Int32Array(N*N),pts=[];
-  for(let y=mg;y<sh-mg;y+=step)for(let x=mg;x<sw-mg;x+=step){
-    let hid=false;for(const b of boxes)if(x>b[0]&&x<b[2]&&y>b[1]&&y<b[3]){hid=true;break}
-    if(hid)continue;
-    let sum=0;for(let dy=-H;dy<=H;dy++)for(let dx=-H;dx<=H;dx++)sum+=prev[(y+dy)*sw+x+dx];
-    const mean=sum/81;let dev=0;
-    for(let dy=-H;dy<=H;dy++)for(let dx=-H;dx<=H;dx++)dev+=Math.abs(prev[(y+dy)*sw+x+dx]-mean);
-    if(dev/81<5)continue; // pouca textura
-    let best=1e9,bx=0,by=0;
-    for(let oy=-SR;oy<=SR;oy++)for(let ox=-SR;ox<=SR;ox++){
-      const cx=x+px+ox,cy=y+py+oy;let sad=0;
-      for(let dy=-H;dy<=H;dy++){const a=(y+dy)*sw+x,b=(cy+dy)*sw+cx;
-        for(let dx=-H;dx<=H;dx++){const d=prev[a+dx]-cur[b+dx];sad+=d<0?-d:d}
-        if(sad>=best)break}
-      grid[(oy+SR)*N+ox+SR]=sad;if(sad<best){best=sad;bx=ox;by=oy}}
-    if(best/81>16)continue;
-    let fx=px+bx,fy=py+by;
-    const X0=x+px+bx,Y0=y+py+by,c0=ssd(prev,cur,sw,x,y,X0,Y0); // refino sub-pixel (parábola no erro quadrático)
-    if(bx>-SR&&bx<SR){const l=ssd(prev,cur,sw,x,y,X0-1,Y0),r=ssd(prev,cur,sw,x,y,X0+1,Y0),dn=l-2*c0+r;if(dn>0)fx+=.5*(l-r)/dn}
-    if(by>-SR&&by<SR){const u=ssd(prev,cur,sw,x,y,X0,Y0-1),d=ssd(prev,cur,sw,x,y,X0,Y0+1),dn=u-2*c0+d;if(dn>0)fy+=.5*(u-d)/dn}
-    pts.push([x-sw/2,y-sh/2,fx,fy]);
+// Primeiro busca o deslocamento global em meia resolução para reduzir CPU.
+function coarseMotion(prev,cur,sw,sh,boxes){
+  const hw=sw>>1,hh=sh>>1,sites=[];
+  for(let y=11;y<hh-11;y+=4)for(let x=11;x<hw-11;x+=4){
+    if(boxes.some(b=>x*2>b[0]&&x*2<b[2]&&y*2>b[1]&&y*2<b[3]))continue;
+    const i=y*hw+x;
+    if(Math.abs(prev[i-2]-prev[i+2])+Math.abs(prev[i-hw*2]-prev[i+hw*2])>=16)sites.push([x,y]);
   }
-  return{pts,m:fitSim(pts)};
+  if(sites.length<9)return null;
+  let best=Infinity,bx=0,by=0;
+  for(let dy=-9;dy<=9;dy++)for(let dx=-9;dx<=9;dx++){
+    let score=0;
+    for(const [x,y] of sites){
+      for(let oy=-1;oy<=1;oy++){
+        const a=(y+oy)*hw+x,b=(y+oy+dy)*hw+x+dx;
+        for(let ox=-1;ox<=1;ox++){const d=prev[a+ox]-cur[b+ox];score+=d<0?-d:d}
+      }
+      if(score>=best)break;
+    }
+    if(score<best){best=score;bx=dx;by=dy}
+  }
+  const mean=best/(sites.length*9);
+  if(mean>25||Math.abs(bx)>=9||Math.abs(by)>=9)return null;
+  return {x:bx*2,y:by*2,quality:Math.max(0,1-mean/25)};
+}
+// Em cenas ambíguas, revalida em escala integral com poucos pixels espalhados.
+// Evita confundir texturas repetidas com giros reais, preservando movimentos rápidos.
+function wideMotion(prev,cur,sw,sh,boxes){
+  const sites=[];
+  for(let y=14;y<sh-14;y+=7)for(let x=20;x<sw-20;x+=7){
+    if(boxes.some(b=>x>b[0]&&x<b[2]&&y>b[1]&&y<b[3]))continue;
+    const i=y*sw+x;
+    if(Math.abs(prev[i-2]-prev[i+2])+Math.abs(prev[i-sw*2]-prev[i+sw*2])>22)sites.push(i);
+  }
+  if(sites.length<12)return null;
+  let best=Infinity,bx=0,by=0;
+  for(let dy=-12;dy<=12;dy++)for(let dx=-18;dx<=18;dx++){
+    const shift=dy*sw+dx;let score=0;
+    for(const i of sites){
+      let d=prev[i]-cur[i+shift];score+=d<0?-d:d;
+      d=prev[i-2]-cur[i+shift-2];score+=d<0?-d:d;
+      d=prev[i+2]-cur[i+shift+2];score+=d<0?-d:d;
+      d=prev[i-sw*2]-cur[i+shift-sw*2];score+=d<0?-d:d;
+      d=prev[i+sw*2]-cur[i+shift+sw*2];score+=d<0?-d:d;
+      if(score>=best)break;
+    }
+    if(score<best){best=score;bx=dx;by=dy}
+  }
+  if(best/(sites.length*5)>19||Math.abs(bx)>=18||Math.abs(by)>=12)return null;
+  return {x:bx,y:by,quality:Math.max(0,1-best/(sites.length*5*19))};
+}
+function downsampleGray(full,half,w,h){
+  const hw=w>>1;
+  for(let y=0;y<h;y+=2)for(let x=0;x<w;x+=2){
+    const i=y*w+x;
+    half[(y>>1)*hw+(x>>1)]=(full[i]+full[i+1]+full[i+w]+full[i+w+1]+2)>>2;
+  }
+}
+// Refinamento local com janela 7x7, previsão de movimento e rejeição de regiões
+// sem textura. Ignora caixas das mãos para não confundir gestos com direção.
+function estimateMotion(prev,cur,sw,sh,boxes,px,py,predicted){
+  const H=3,SR=predicted?3:5,step=10,margin=H+SR+2,pts=[];
+  const minX=margin+Math.max(0,-px),maxX=sw-margin-Math.max(0,px);
+  const minY=margin+Math.max(0,-py),maxY=sh-margin-Math.max(0,py);
+  for(let y=minY;y<maxY;y+=step)for(let x=minX;x<maxX;x+=step){
+    let hidden=false;
+    for(const b of boxes)if(x>b[0]&&x<b[2]&&y>b[1]&&y<b[3]){hidden=true;break}
+    if(hidden)continue;
+    let sum=0,dev=0;
+    for(let dy=-H;dy<=H;dy++)for(let dx=-H;dx<=H;dx++)sum+=prev[(y+dy)*sw+x+dx];
+    const mean=sum/49;
+    for(let dy=-H;dy<=H;dy++)for(let dx=-H;dx<=H;dx++)dev+=Math.abs(prev[(y+dy)*sw+x+dx]-mean);
+    if(dev/49<5)continue;
+    let best=Infinity,bx=0,by=0;
+    for(let oy=-SR;oy<=SR;oy++)for(let ox=-SR;ox<=SR;ox++){
+      const cx=x+px+ox,cy=y+py+oy;
+      let sad=0;
+      for(let dy=-H;dy<=H;dy++){
+        const a=(y+dy)*sw+x,b=(cy+dy)*sw+cx;
+        for(let dx=-H;dx<=H;dx++){const d=prev[a+dx]-cur[b+dx];sad+=d<0?-d:d}
+        if(sad>=best)break;
+      }
+      if(sad<best){best=sad;bx=ox;by=oy}
+    }
+    if(best/49>18)continue;
+    pts.push([x-sw/2,y-sh/2,px+bx,py+by]);
+  }
+  return {pts,m:fitSim(pts)};
 }
 function gyroStep(vid){
   const{sw,sh}=gy;sg2.drawImage(vid,0,0,sw,sh);
   const d=sg2.getImageData(0,0,sw,sh).data,cur=gy.cur;
   for(let i=0,j=0;i<cur.length;i++,j+=4)cur[i]=(d[j]*77+d[j+1]*150+d[j+2]*29)>>8;
-  if(!gy.has){gy.prev.set(cur);gy.has=true;return null}
+  downsampleGray(cur,gy.smallCur,sw,sh);
+  if(!gy.has){gy.prev.set(cur);gy.smallPrev.set(gy.smallCur);gy.has=true;return null}
   const boxes=tracks.map(T=>{let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
     for(const p of T.c){if(p[0]<x0)x0=p[0];if(p[0]>x1)x1=p[0];if(p[1]<y0)y0=p[1];if(p[1]>y1)y1=p[1]}
     const m=T.s*.5;return[(x0-m)/gy.sc,(y0-m)/gy.sc,(x1+m)/gy.sc,(y1+m)/gy.sc]});
-  const px=Math.max(-7,Math.min(7,Math.round(gy.ptx))),py=Math.max(-7,Math.min(7,Math.round(gy.pty)));
-  const{pts,m}=estimateMotion(gy.prev,cur,sw,sh,boxes,px,py);
-  gy.prev.set(cur);gy.tot=pts.length;
-  if(!m||m.n/pts.length<.5){gy.ok=false;gy.n=0;gy.ptx*=.5;gy.pty*=.5;return null}
-  gy.ok=true;gy.n=m.n;gy.ptx=m.tx;gy.pty=m.ty;
+  const coarse=coarseMotion(gy.smallPrev,gy.smallCur,sw,sh,boxes);
+  const wide=(!coarse||coarse.quality<.77)?wideMotion(gy.prev,cur,sw,sh,boxes):null;
+  const prediction=wide||coarse;
+  const px=prediction?Math.round(prediction.x):Math.max(-7,Math.min(7,Math.round(gy.ptx)));
+  const py=prediction?Math.round(prediction.y):Math.max(-7,Math.min(7,Math.round(gy.pty)));
+  const {pts,m}=estimateMotion(gy.prev,cur,sw,sh,boxes,px,py,!!prediction);
+  gy.prev.set(cur);gy.smallPrev.set(gy.smallCur);gy.tot=pts.length;
+  if(!m||m.n<6||m.n/pts.length<.56||!Number.isFinite(m.tx)||!Number.isFinite(m.ty)){
+    gy.ok=false;gy.n=0;gy.ptx*=.5;gy.pty*=.5;gy.quality=0;return null
+  }
+  gy.ok=true;gy.n=m.n;gy.ptx=m.tx;gy.pty=m.ty;gy.quality=m.n/pts.length;
   let th=Math.atan2(m.b,1+m.a),tx=m.tx,ty=m.ty;
-  if(Math.abs(tx)<.07)tx=0;if(Math.abs(ty)<.07)ty=0;if(Math.abs(th)<.0007)th=0; // zona morta: evita deriva por ruído
+  if(Math.abs(tx)<.09)tx=0;if(Math.abs(ty)<.09)ty=0;if(Math.abs(th)<.0007)th=0; // zona morta: evita deriva por ruído
   const D=180/Math.PI;
   gy.yaw=(gy.yaw-Math.atan2(tx,gy.f)*D+360)%360;                    // virar à direita aumenta
   gy.pitch=Math.max(-90,Math.min(90,gy.pitch+Math.atan2(ty,gy.f)*D)); // olhar para cima aumenta
@@ -302,14 +389,14 @@ let lastMsg='',mode='',lastVRDraw=0;
 function render(now){
   const dt=Math.min((now-render.last)/1000,.05);render.last=now;
   const t=now/1000,k=1-Math.exp(-dt*45),kq=1-Math.exp(-dt*20);
-  tracks=tracks.filter(T=>t-T.seen<.5);
+  tracks=tracks.filter(T=>t-T.seen<.42);
   if(panel.grab&&!tracks.includes(panel.grab.T))panel.grab=null;
   xp.setTransform(R,0,0,R,0,0);xf.setTransform(R,0,0,R,0,0);xo.setTransform(R,0,0,R,0,0);
   xp.clearRect(0,0,CW,CH);xf.clearRect(0,0,CW,CH);xo.clearRect(0,0,CW,CH);
   let hover=false;
 
   for(const T of tracks){
-    const el=Math.min(t-T.tm,.07);
+    const el=Math.min(t-T.tm,.045);
     for(let j=0;j<21;j++){const p=T.c[j];for(let a=0;a<3;a++){const pr=T.f[j][a]+T.v[j][a]*el*.9;p[a]+=(pr-p[a])*k}}
     T.q=qnl(T.q,T.qr,kq);
     const w=T.c[0],m=T.c[9];
@@ -365,7 +452,7 @@ const MODEL='https://cdn.jsdelivr.net/npm/expo-vision-camera-v4-mediapipe@1.4.0/
 async function initTasks(){
   const {HandLandmarker,FilesetResolver}=await import(TV+'vision_bundle.mjs');
   const fs=await FilesetResolver.forVisionTasks(TV+'wasm');
-  const mk=d=>HandLandmarker.createFromOptions(fs,{baseOptions:{modelAssetPath:MODEL,delegate:d},runningMode:'VIDEO',numHands:2,minHandDetectionConfidence:.5,minHandPresenceConfidence:.5,minTrackingConfidence:.5});
+  const mk=d=>HandLandmarker.createFromOptions(fs,{baseOptions:{modelAssetPath:MODEL,delegate:d},runningMode:'VIDEO',numHands:2,minHandDetectionConfidence:.46,minHandPresenceConfidence:.45,minTrackingConfidence:.56});
   let lm;try{lm=await mk('GPU');mode='GPU'}catch(e){lm=await mk('CPU');mode='CPU'}
   let lastTs=0;
   return async vid=>{const ts=Math.max(performance.now(),lastTs+1);lastTs=ts;return lm.detectForVideo(vid,ts).landmarks||[]};
@@ -375,9 +462,9 @@ async function initLegacy(){
   const B='https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/';
   await loadScript(B+'hands.js');
   const hd=new Hands({locateFile:f=>B+f});
-  hd.setOptions({maxNumHands:2,modelComplexity:0,minDetectionConfidence:.55,minTrackingConfidence:.5});
+  hd.setOptions({maxNumHands:2,modelComplexity:0,minDetectionConfidence:.48,minTrackingConfidence:.55});
   let res=[];hd.onResults(r=>{res=r.multiHandLandmarks||[]});
-  const sc=document.createElement('canvas');sc.width=320;sc.height=Math.round(320*CH/CW);const sg=sc.getContext('2d');
+  const sc=document.createElement('canvas');sc.width=384;sc.height=Math.round(384*CH/CW);const sg=sc.getContext('2d');
   mode='compatível';
   return async vid=>{sg.drawImage(vid,0,0,sc.width,sc.height);await hd.send({image:sc});return res};
 }
@@ -395,18 +482,32 @@ go.onclick=async()=>{
     let det;
     try{det=await initTasks()}catch(e){console.warn(e);det=await initLegacy()}
     msg.textContent='';
-    let lastT=-1,ema=0,gyTick=0,gyEvery=1;
-    const loop=async()=>{
-      if(v.readyState>=2&&v.currentTime!==lastT){
-        lastT=v.currentTime;const t0=performance.now();
-        try{
-          if(gyTick++%gyEvery===0){const mo=gyroStep(v);if(panel.init&&!panel.grab)applyCam(mo)}
-          onLandmarks(await det(v));
-        }catch(e){console.warn(e)}
-        const dm=performance.now()-t0;ema=ema?ema*.9+dm*.1:dm;gyEvery=ema>29?3:ema>20?2:1; // se pesar, o sensor visual roda em metade dos quadros
+    // Agendas independentes: o reconhecimento de mãos não pula deliberadamente
+    // quadros de orientação; ambas respeitam um orçamento de CPU adaptativo.
+    let lastGyFrame=-1,lastHandFrame=-1,lastGyAt=0,lastHandAt=0,handEMA=0,gyroEMA=0;
+    const queueFrame=fn=>v.requestVideoFrameCallback?v.requestVideoFrameCallback(fn):requestAnimationFrame(fn);
+    const motionLoop=()=>{
+      const t=performance.now();
+      if(!document.hidden&&v.readyState>=2&&v.currentTime!==lastGyFrame&&t-lastGyAt>=Math.max(44,gyroEMA*1.35)){
+        lastGyFrame=v.currentTime;lastGyAt=t;
+        const began=performance.now();
+        try{const mo=gyroStep(v);if(panel.init&&!panel.grab)applyCam(mo)}catch(e){console.warn('Direção:',e)}
+        const cost=performance.now()-began;gyroEMA=gyroEMA?gyroEMA*.8+cost*.2:cost;
       }
-      v.requestVideoFrameCallback?v.requestVideoFrameCallback(loop):requestAnimationFrame(loop)};
-    loop();
+      if(started)queueFrame(motionLoop);
+    };
+    const handsLoop=async()=>{
+      const t=performance.now(),target=handEMA>55?115:handEMA>33?82:handEMA>19?64:42;
+      if(!document.hidden&&v.readyState>=2&&v.currentTime!==lastHandFrame&&t-lastHandAt>=target){
+        lastHandFrame=v.currentTime;lastHandAt=t;
+        const began=performance.now();
+        try{onLandmarks(await det(v))}catch(e){console.warn('Mãos:',e)}
+        const cost=performance.now()-began;handEMA=handEMA?handEMA*.85+cost*.15:cost;
+      }
+      if(started)queueFrame(handsLoop);
+    };
+    queueFrame(motionLoop);
+    queueFrame(handsLoop);
   }catch(e){msg.textContent='Erro: '+e.message;go.style.display='block'}
 };
 </script>
