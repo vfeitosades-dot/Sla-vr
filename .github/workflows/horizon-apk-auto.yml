@@ -26,9 +26,6 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Configurar Android SDK
-        uses: android-actions/setup-android@v3
-
       - name: Instalar plataforma Android
         run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
 
@@ -86,7 +83,7 @@ jobs:
           apk=$(find ci/app/build/outputs/apk/debug -maxdepth 1 -name '*.apk' -print -quit)
           test -n "$apk" && test -s "$apk"
           cp "$apk" HorizonPocketVR-Automatico.apk
-          apksigner verify --verbose HorizonPocketVR-Automatico.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose HorizonPocketVR-Automatico.apk
           sha256sum HorizonPocketVR-Automatico.apk
 
       - name: Disponibilizar APK na aba Actions
