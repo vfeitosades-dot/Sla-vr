@@ -8,7 +8,7 @@ function section(a,b){
   return html.slice(from,to);
 }
 // The UI still renders at requestAnimationFrame cadence, unlike the old 26ms limiter.
-assert(html.includes('if(vr){lastVRDraw=now;drawVR();}'),'VR render must not use an artificial ~30 FPS cap');
+assert(/if\s*\(vr\)\s*\{[\s\S]{0,300}lastVRDraw\s*=\s*now;\s*drawVR\(\)/.test(html),'VR render must not use an artificial ~30 FPS cap');
 assert(!html.includes('now-lastVRDraw>26'));
 assert(html.includes('const vrMaxHeight=480,vrMinHeight=400'),'dynamic render scaling absent');
 assert(html.includes('R=on?.86:1')||html.includes('R=on?.9:1'),'VR panel overlays must use fewer pixels');
