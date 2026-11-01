@@ -1,0 +1,110 @@
+name: Horizon Pocket VR - APK automatico
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'android/**'
+      - '.github/workflows/horizon-apk-auto.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Obter codigo
+        uses: actions/checkout@v4
+
+      - name: Configurar Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Configurar Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Instalar plataforma Android
+        run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+
+      - name: Configurar Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Preparar projeto Android a partir dos fontes existentes
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ci/app/src/main/java/com/pocket/horizon ci/app/src/main/assets ci/app/src/main/res
+          cp android/*.java ci/app/src/main/java/com/pocket/horizon/
+          cp -R android/res/. ci/app/src/main/res/
+          cp src/*.js src/*.html ci/app/src/main/assets/
+          cp android/AndroidManifest.xml ci/app/src/main/AndroidManifest.xml
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('ci/app/src/main/AndroidManifest.xml')
+          p.write_text(p.read_text().replace(' package="com.pocket.horizon"', ''), encoding='utf-8')
+          PY
+          cat > ci/settings.gradle <<'GRADLE'
+          pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
+          dependencyResolutionManagement { repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS); repositories { google(); mavenCentral() } }
+          rootProject.name = 'HorizonPocketVR'
+          include ':app'
+          GRADLE
+          cat > ci/build.gradle <<'GRADLE'
+          plugins { id 'com.android.application' version '8.7.3' apply false }
+          GRADLE
+          cat > ci/app/build.gradle <<'GRADLE'
+          plugins { id 'com.android.application' }
+          android {
+              namespace 'com.pocket.horizon'
+              compileSdk 35
+              defaultConfig {
+                  applicationId 'com.pocket.horizon.ci'
+                  minSdk 26
+                  targetSdk 34
+                  versionCode 71
+                  versionName '7.0-auto'
+              }
+              compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+          }
+          GRADLE
+
+      - name: Compilar APK Android
+        run: gradle --project-dir ci --no-daemon --stacktrace assembleDebug
+
+      - name: Conferir APK compilado
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk=$(find ci/app/build/outputs/apk/debug -maxdepth 1 -name '*.apk' -print -quit)
+          test -n "$apk" && test -s "$apk"
+          cp "$apk" HorizonPocketVR-Automatico.apk
+          apksigner verify --verbose HorizonPocketVR-Automatico.apk
+          sha256sum HorizonPocketVR-Automatico.apk
+
+      - name: Disponibilizar APK na aba Actions
+        uses: actions/upload-artifact@v4
+        with:
+          name: HorizonPocketVR-Automatico
+          path: HorizonPocketVR-Automatico.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Disponibilizar link direto em Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          if ! gh release view horizon-auto >/dev/null 2>&1; then
+            gh release create horizon-auto --target "$GITHUB_SHA" --title 'Horizon Pocket VR - APK automatico' --notes 'Versao de teste gerada automaticamente. Pacote com identificador .ci para instalacao paralela; ainda requer teste no celular.' --prerelease
+          fi
+          gh release upload horizon-auto HorizonPocketVR-Automatico.apk --clobber
