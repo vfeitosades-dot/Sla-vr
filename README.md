@@ -6,7 +6,7 @@
 
 - **Direção horizontal**: no modo VR, se não há orientação nativa confiável, o app pode solicitar a câmera e ativar rastreamento óptico para esquerda/direita e cima/baixo. O sensor visual exige boa luz e textura no ambiente, e é uma estimativa relativa, não SLAM/6DoF.
 - **Mãos no mundo 3D**: botão **✋ Mãos IA** na barra principal. O app pede autorização da câmera se necessário, captura em segundo plano sem mostrar o vídeo e desenha pontos e conexões estimados no cenário 3D (até duas mãos). O desenho não é uma malha realista nem reproduz profundidade métrica. Para enxergar as mãos, elas precisam estar dentro do campo da câmera traseira.
-- **Inferência mais frequente**: remove a antiga pausa de 180–300 ms, agora limita a cadência ideal a ~15 análises/s quando a CPU/GPU permitir. Na prática pode ser bem menor, inclusive em celulares de entrada; não há promessa de 30/60 FPS de IA.
+- **Inferência mais frequente**: remove a antiga pausa de 180–300 ms, agora usa um intervalo-alvo de ~30 análises/s quando a CPU/GPU permitir. Na prática pode ser bem menor, inclusive em celulares de entrada; não há promessa de 30/60 FPS de IA.
 - **Botão ↔ Direção**: inicia/desliga rastreamento visual sem precisar ativar a visualização da câmera. O botão **Mostrar câmera** revela a imagem somente quando solicitado.
 - **Navegador dentro do aplicativo**: a aba Navegador abre URLs HTTPS numa segunda WebView com barra de endereço, recarregar, voltar e fechar. Sites não recebem a interface JavaScript com permissões do app. Algumas páginas ou vídeos podem limitar WebViews. O navegador é uma tela plana, não uma janela 3D estereoscópica.
 
