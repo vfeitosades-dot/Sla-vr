@@ -1,3 +1,28 @@
+# Horizon Pocket VR 8.0 — Mãos sem vídeo, orientação e navegador interno
+
+**[Baixar APK 8.0 automático](https://github.com/vfeitosades-dot/Sla-vr/releases/download/horizon-auto/HorizonPocketVR-Automatico.apk)**
+
+## Novidades da versão 8
+
+- **Direção horizontal**: no modo VR, se não há orientação nativa confiável, o app pode solicitar a câmera e ativar rastreamento óptico para esquerda/direita e cima/baixo. O sensor visual exige boa luz e textura no ambiente, e é uma estimativa relativa, não SLAM/6DoF.
+- **Mãos no mundo 3D**: botão **✋ Mãos IA** na barra principal. O app pede autorização da câmera se necessário, captura em segundo plano sem mostrar o vídeo e desenha pontos e conexões estimados no cenário 3D (até duas mãos). O desenho não é uma malha realista nem reproduz profundidade métrica. Para enxergar as mãos, elas precisam estar dentro do campo da câmera traseira.
+- **Inferência mais frequente**: remove a antiga pausa de 180–300 ms, agora limita a cadência ideal a ~15 análises/s quando a CPU/GPU permitir. Na prática pode ser bem menor, inclusive em celulares de entrada; não há promessa de 30/60 FPS de IA.
+- **Botão ↔ Direção**: inicia/desliga rastreamento visual sem precisar ativar a visualização da câmera. O botão **Mostrar câmera** revela a imagem somente quando solicitado.
+- **Navegador dentro do aplicativo**: a aba Navegador abre URLs HTTPS numa segunda WebView com barra de endereço, recarregar, voltar e fechar. Sites não recebem a interface JavaScript com permissões do app. Algumas páginas ou vídeos podem limitar WebViews. O navegador é uma tela plana, não uma janela 3D estereoscópica.
+
+### Permissões e segurança
+
+A câmera **continua sendo necessária** para rastrear mãos ou direção visual; a opção de ocultá-la só esconde a imagem do visor, não desliga a captura. O app interrompe a captura ao ir para segundo plano e usa HTTPS para as páginas internas. A primeira ativação do modelo MediaPipe pode precisar de Internet; inferência e imagens da câmera são processadas no dispositivo.
+
+### Instalação e validação
+
+APK de teste gerado com GitHub Actions, compilado com Android SDK 35 e assinatura de debug verificada. Os testes sintéticos de movimento horizontal/vertical, preview e captura oculta passaram; **não foi testado em um telefone físico** e ainda precisa de validação de latência/qualidade e de navegação no seu aparelho. O APK automático usa um identificador `.ci` e pode ser instalado junto de versões antigas.
+
+[Histórico de compilação](https://github.com/vfeitosades-dot/Sla-vr/actions/workflows/horizon-apk-auto.yml)
+
+---
+
+## Histórico anterior da versão 7
 # Horizon Pocket VR 7.0 — Spatial
 
 [Baixar o APK 7.0](./HorizonPocketVR_7.apk)
