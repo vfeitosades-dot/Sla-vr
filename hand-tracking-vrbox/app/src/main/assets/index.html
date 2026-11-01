@@ -191,7 +191,7 @@ function coarseMotion(prev,cur,sw,sh,boxes){
 // Evita confundir texturas repetidas com giros reais, preservando movimentos rápidos.
 function wideMotion(prev,cur,sw,sh,boxes){
   const sites=[];
-  for(let y=14;y<sh-14;y+=9)for(let x=20;x<sw-20;x+=9){
+  for(let y=14;y<sh-14;y+=7)for(let x=20;x<sw-20;x+=7){
     if(boxes.some(b=>x>b[0]&&x<b[2]&&y>b[1]&&y<b[3]))continue;
     const i=y*sw+x;
     if(Math.abs(prev[i-2]-prev[i+2])+Math.abs(prev[i-sw*2]-prev[i+sw*2])>22)sites.push(i);
@@ -224,7 +224,7 @@ function downsampleGray(full,half,w,h){
 // Refinamento local com janela 7x7, previsão de movimento e rejeição de regiões
 // sem textura. Ignora caixas das mãos para não confundir gestos com direção.
 function estimateMotion(prev,cur,sw,sh,boxes,px,py,predicted){
-  const H=3,SR=predicted?3:5,step=predicted?12:10,margin=H+SR+2,pts=[];
+  const H=3,SR=predicted?3:5,step=10,margin=H+SR+2,pts=[];
   const minX=margin+Math.max(0,-px),maxX=sw-margin-Math.max(0,px);
   const minY=margin+Math.max(0,-py),maxY=sh-margin-Math.max(0,py);
   for(let y=minY;y<maxY;y+=step)for(let x=minX;x<maxX;x+=step){
@@ -262,7 +262,7 @@ function gyroStep(vid){
     for(const p of T.c){if(p[0]<x0)x0=p[0];if(p[0]>x1)x1=p[0];if(p[1]<y0)y0=p[1];if(p[1]>y1)y1=p[1]}
     const m=T.s*.5;return[(x0-m)/gy.sc,(y0-m)/gy.sc,(x1+m)/gy.sc,(y1+m)/gy.sc]});
   const coarse=coarseMotion(gy.smallPrev,gy.smallCur,sw,sh,boxes);
-  const wide=(!coarse||coarse.quality<.48)?wideMotion(gy.prev,cur,sw,sh,boxes):null;
+  const wide=(!coarse||coarse.quality<.77)?wideMotion(gy.prev,cur,sw,sh,boxes):null;
   const prediction=wide||coarse;
   const px=prediction?Math.round(prediction.x):Math.max(-7,Math.min(7,Math.round(gy.ptx)));
   const py=prediction?Math.round(prediction.y):Math.max(-7,Math.min(7,Math.round(gy.pty)));
@@ -415,19 +415,6 @@ function drawVR(){
   gl.uniform1f(glOverlayAspect,cp.width/cp.height);
   gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
 }
-function paintVRHand(g,T){
-  g.save();g.globalAlpha=.13;shape(g,T.P,T.s,0,'#fff');
-  g.globalAlpha=.88;g.strokeStyle='#fff';g.fillStyle='#fff';
-  g.lineCap='round';g.lineJoin='round';g.lineWidth=Math.max(1.5,T.s*.016);
-  g.beginPath();[21,1,2,5,9,13,17].forEach((p,i)=>i?g.lineTo(T.P[p][0],T.P[p][1]):g.moveTo(T.P[p][0],T.P[p][1]));g.closePath();g.stroke();
-  for(const joints of FINGERS){
-    g.beginPath();
-    for(let j=0;j<joints.length;j++){const p=T.P[joints[j]];j?g.lineTo(p[0],p[1]):g.moveTo(p[0],p[1]);}
-    g.stroke();
-  }
-  if(T.pinch){g.beginPath();g.arc(T.pp[0],T.pp[1],T.s*.06,0,Math.PI*2);g.fill();}
-  g.restore();
-}
 async function setVR(on){
   vr=on;R=on?.86:1;for(const c of[cp,cf,co]){c.width=Math.round(CW*R);c.height=Math.round(CH*R)};glc.style.display=on?'block':'none';vrb.style.display=on?'none':'block';
   if(on){
@@ -474,13 +461,8 @@ function render(now){
   const t=now/1000,k=1-Math.exp(-dt*45),kq=1-Math.exp(-dt*20);
   tracks=tracks.filter(T=>t-T.seen<.42);
   if(panel.grab&&!tracks.includes(panel.grab.T))panel.grab=null;
-  xp.setTransform(R,0,0,R,0,0);xp.clearRect(0,0,CW,CH);
-  // Em VR o painel e as mãos compartilham uma única textura na GPU.
-  // Fora do VR, preserva as camadas com silhueta e contorno originais.
-  if(!vr){
-    xf.setTransform(R,0,0,R,0,0);xo.setTransform(R,0,0,R,0,0);
-    xf.clearRect(0,0,CW,CH);xo.clearRect(0,0,CW,CH);
-  }
+  xp.setTransform(R,0,0,R,0,0);xf.setTransform(R,0,0,R,0,0);xo.setTransform(R,0,0,R,0,0);
+  xp.clearRect(0,0,CW,CH);xf.clearRect(0,0,CW,CH);xo.clearRect(0,0,CW,CH);
   let hover=false;
 
   for(const T of tracks){
@@ -521,9 +503,8 @@ function render(now){
   xp.beginPath();xp.moveTo(bar[0][0],bar[0][1]);xp.lineTo(bar[1][0],bar[1][1]);xp.lineCap='round';xp.lineWidth=5;xp.strokeStyle='rgba(255,255,255,.7)';xp.stroke();
 
   drawArrow();
-  // Mãos: textura VR única; no modo normal mantém desenho antigo.
+  // Mantém o desenho original das mãos mesmo na GPU.
   for(const T of tracks){
-    if(vr){paintVRHand(xp,T);continue}
     const ow=Math.max(1.5,T.s*.013);
     shape(xf,T.P,T.s,0,'#fff');
     shape(xo,T.P,T.s,ow,'#fff');
@@ -531,7 +512,13 @@ function render(now){
     xo.globalCompositeOperation='source-over';
     if(T.pinch){xo.beginPath();xo.arc(T.pp[0],T.pp[1],T.s*.07,0,7);xo.fillStyle='#fff';xo.fill()}
   }
-  if(vr){lastVRDraw=now;drawVR();}
+  if(vr){
+    xp.save();xp.setTransform(1,0,0,1,0,0);
+    xp.globalAlpha=.10;xp.drawImage(cf,0,0);
+    xp.globalAlpha=.95;xp.drawImage(co,0,0);
+    xp.restore();
+    lastVRDraw=now;drawVR();
+  }
   requestAnimationFrame(render);
 }
 render.last=performance.now();
