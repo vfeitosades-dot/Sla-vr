@@ -38,7 +38,7 @@
       this.onStatus = typeof onStatus === 'function' ? onStatus : () => {};
       this.latest = [];
       this.handedness = [];
-      this.input=document.createElement('canvas');this.input.width=256;this.input.height=192;this.inputContext=this.input.getContext('2d',{alpha:false});this.lastVideoTime=-1;
+      this.input=document.createElement('canvas');this.input.width=320;this.input.height=240;this.inputContext=this.input.getContext('2d',{alpha:false});this.lastVideoTime=-1;
       this.active = false;
       this._run = null;
       this._generation = 0;
@@ -113,8 +113,8 @@
       run.busy = true;
       try {
         this.lastVideoTime=this.video.currentTime;
-        const h=Math.max(1,Math.round(256*this.video.videoHeight/this.video.videoWidth));if(this.input.height!==h)this.input.height=h;
-        this.inputContext.drawImage(this.video,0,0,256,h);
+        const h=Math.max(1,Math.round(320*this.video.videoHeight/this.video.videoWidth));if(this.input.height!==h)this.input.height=h;
+        this.inputContext.drawImage(this.video,0,0,320,h);
         const sending = Promise.resolve(run.model.send({ image: this.input }));
         sending.finally(() => { run.busy = false; if (!this._current(run)) this._close(run); }).catch(() => {});
         await timed(sending, 15000, 'O rastreamento de mãos parou de responder. Desative e tente novamente.');
@@ -128,8 +128,8 @@
         this._close(run);
         return;
       }
-      // Schedule immediately after inference finishes, capped near 15 FPS when hardware permits.
-      this._schedule(run, Math.max(0, 68 - (performance.now() - started)));
+      // Schedule immediately after inference finishes, targeting 30 FPS when hardware permits; inference time remains device-dependent.
+      this._schedule(run, Math.max(0, 33 - (performance.now() - started)));
     }
     stop() {
       const run = this._run;
