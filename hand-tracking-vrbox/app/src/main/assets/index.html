@@ -190,7 +190,7 @@ function coarseMotion(prev,cur,sw,sh,boxes){
 // Evita confundir texturas repetidas com giros reais, preservando movimentos rápidos.
 function wideMotion(prev,cur,sw,sh,boxes){
   const sites=[];
-  for(let y=14;y<sh-14;y+=7)for(let x=20;x<sw-20;x+=7){
+  for(let y=14;y<sh-14;y+=9)for(let x=20;x<sw-20;x+=9){
     if(boxes.some(b=>x>b[0]&&x<b[2]&&y>b[1]&&y<b[3]))continue;
     const i=y*sw+x;
     if(Math.abs(prev[i-2]-prev[i+2])+Math.abs(prev[i-sw*2]-prev[i+sw*2])>22)sites.push(i);
@@ -222,7 +222,7 @@ function downsampleGray(full,half,w,h){
 // Refinamento local com janela 7x7, previsão de movimento e rejeição de regiões
 // sem textura. Ignora caixas das mãos para não confundir gestos com direção.
 function estimateMotion(prev,cur,sw,sh,boxes,px,py,predicted){
-  const H=3,SR=predicted?3:5,step=10,margin=H+SR+2,pts=[];
+  const H=3,SR=predicted?3:5,step=predicted?12:10,margin=H+SR+2,pts=[];
   const minX=margin+Math.max(0,-px),maxX=sw-margin-Math.max(0,px);
   const minY=margin+Math.max(0,-py),maxY=sh-margin-Math.max(0,py);
   for(let y=minY;y<maxY;y+=step)for(let x=minX;x<maxX;x+=step){
@@ -260,7 +260,7 @@ function gyroStep(vid){
     for(const p of T.c){if(p[0]<x0)x0=p[0];if(p[0]>x1)x1=p[0];if(p[1]<y0)y0=p[1];if(p[1]>y1)y1=p[1]}
     const m=T.s*.5;return[(x0-m)/gy.sc,(y0-m)/gy.sc,(x1+m)/gy.sc,(y1+m)/gy.sc]});
   const coarse=coarseMotion(gy.smallPrev,gy.smallCur,sw,sh,boxes);
-  const wide=(!coarse||coarse.quality<.77)?wideMotion(gy.prev,cur,sw,sh,boxes):null;
+  const wide=(!coarse||coarse.quality<.56)?wideMotion(gy.prev,cur,sw,sh,boxes):null;
   const prediction=wide||coarse;
   const px=prediction?Math.round(prediction.x):Math.max(-7,Math.min(7,Math.round(gy.ptx)));
   const py=prediction?Math.round(prediction.y):Math.max(-7,Math.min(7,Math.round(gy.pty)));
