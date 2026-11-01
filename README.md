@@ -1,3 +1,26 @@
+# Horizon Pocket VR 9.0 — Direção rápida + nitidez dinâmica
+
+**[Baixar APK automático mais recente](https://github.com/vfeitosades-dot/Sla-vr/releases/download/horizon-auto/HorizonPocketVR-Automatico.apk)**
+
+## Melhorias
+
+- **Rastreamento horizontal mais responsivo:** busca piramidal em meia resolução e refinamento em resolução integral para acompanhar deslocamentos de imagem maiores (em vez de limitar a detecção a 5 pixels por atualização). Ajuste moderado da resposta horizontal, sem substituir um giroscópio real.
+- **Cadência alvo do rastreador óptico de 65 ms**, mas sujeita ao tempo de processamento do celular e aos quadros efetivos da câmera. A IA de mãos e o rastreador disputam recursos do aparelho.
+- **Maior resolução do cenário 3D:** escala inicial de renderização aumentada para 1,22; limite conforme densidade do dispositivo e opção selecionada. O app reduz resolução gradualmente quando o FPS está baixo e recupera-a quando há margem de desempenho.
+- **Nitidez configurável:** em **Ajustes → Nitidez**, alterne entre **Economia**, **Equilibrada HD** e **Alta HD**. Use Economia caso o VR engasgue ou aqueça muito; use Alta HD se houver folga de desempenho.
+- **Câmera:** pedido de captura até 1280 × 720, ideal 960 × 720, até 30 quadros/s (a resolução final depende do aparelho). O rastreador continua processando quadros reduzidos para diminuir uso de CPU e manter a interface fluida.
+- **Textos do painel:** anisotropia de textura aumentada de 2× para 4×, respeitando o máximo suportado.
+
+## Testes e limitações
+
+A pipeline GitHub Actions executa verificações de sintaxe, cenário/captura e orientação da câmera, incluindo giros horizontais de até 16 pixels entre imagens sintéticas. Isso **não comprova** funcionamento na velocidade desejada no aparelho: pouca luz, desfoque, objetos móveis ou falta de textura podem causar perda temporária da direção. O rastreamento é **relativo à imagem**; não é SLAM nem rastreamento Quest 6DoF.
+
+**Instalação:** o pacote automático Android é assinado para testes pelo GitHub Actions; se o Android mostrar conflito de assinatura com um APK automático anterior, pode ser necessário desinstalar a versão anterior para instalar esta. Isso pode apagar configurações e dados locais. APK gerado no GitHub, mas ainda sem teste em telefone físico.
+
+[Histórico da compilação automática](https://github.com/vfeitosades-dot/Sla-vr/actions/workflows/horizon-apk-auto.yml)
+
+---
+
 # Horizon Pocket VR 8.0 — Mãos sem vídeo, orientação e navegador interno
 
 **[Baixar APK 8.0 automático](https://github.com/vfeitosades-dot/Sla-vr/releases/download/horizon-auto/HorizonPocketVR-Automatico.apk)**
