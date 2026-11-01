@@ -31,7 +31,9 @@ jobs:
           console.log('JavaScript e modo VR Box verificados');
           NODE
       - name: Testar direcao e deteccao das maos
-        run: node hand-tracking-vrbox/tests/tracking.test.cjs
+        run: |
+          node hand-tracking-vrbox/tests/tracking.test.cjs
+          node hand-tracking-vrbox/tests/performance.test.cjs
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -66,6 +68,6 @@ jobs:
         with:
           tag_name: handtracking-vrbox-auto
           name: Hand Tracking VR Box - APK automatico
-          body: 'Versao 1.1: direcao visual mais rapida e rastreamento de maos mais estavel. Compilacao automatica de teste. Requer camera, acesso a internet para MediaPipe e Android WebView atualizado.'
+          body: 'Versao 1.2: renderizacao VR com meta 60 FPS, resolucao adaptativa e otimizacao de recursos sem alterar a interface. Compilacao automatica de teste. Requer camera, acesso a internet para MediaPipe e Android WebView atualizado.'
           files: HandTrackingVRBox.apk
           overwrite_files: true
