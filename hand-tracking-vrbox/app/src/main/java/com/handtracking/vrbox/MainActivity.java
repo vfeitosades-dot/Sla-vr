@@ -18,6 +18,9 @@ import android.view.WindowManager;
 import android.view.inputmethod.EditorInfo;
 import android.graphics.Color;
 import android.content.Context;
+import android.util.DisplayMetrics;
+import android.view.KeyEvent;
+import org.json.JSONObject;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.FrameLayout;
@@ -37,6 +40,8 @@ public class MainActivity extends Activity {
   private EditText addressBar;
   private PermissionRequest pending;
   private boolean browserVisible=false;
+  // Volume keys tune inter-lens distance only in an explicitly activated VR test.
+  private volatile boolean vrCalibrationActive=false;
 
   private int dp(float n){return Math.round(n*getResources().getDisplayMetrics().density);}
   private static boolean isLocal(Uri uri){
@@ -80,6 +85,25 @@ public class MainActivity extends Activity {
       }
       @JavascriptInterface public void closeBrowser(){
         runOnUiThread(()->closeBrowserInside());
+      }
+      @JavascriptInterface public String getDisplayInfo(){
+        DisplayMetrics metrics=new DisplayMetrics();
+        getWindowManager().getDefaultDisplay().getRealMetrics(metrics);
+        float w=metrics.widthPixels*25.4f/Math.max(1,metrics.xdpi);
+        float h=metrics.heightPixels*25.4f/Math.max(1,metrics.ydpi);
+        try{
+          JSONObject data=new JSONObject();
+          data.put("longEdgeMm",Math.max(w,h));
+          data.put("shortEdgeMm",Math.min(w,h));
+          data.put("widthPx",metrics.widthPixels);
+          data.put("heightPx",metrics.heightPixels);
+          data.put("xdpi",metrics.xdpi);
+          data.put("ydpi",metrics.ydpi);
+          return data.toString();
+        }catch(Exception e){return "{}";}
+      }
+      @JavascriptInterface public void setVrCalibrationActive(boolean active){
+        vrCalibrationActive=active;
       }
     },"VRNative");
     web.setWebViewClient(new WebViewClient(){
@@ -234,6 +258,18 @@ public class MainActivity extends Activity {
       else req.deny();
     }
   }
+  @Override public boolean dispatchKeyEvent(KeyEvent event){
+    int key=event.getKeyCode();
+    if(vrCalibrationActive&&(key==KeyEvent.KEYCODE_VOLUME_UP||key==KeyEvent.KEYCODE_VOLUME_DOWN)){
+      if(event.getAction()==KeyEvent.ACTION_DOWN&&event.getRepeatCount()==0&&web!=null){
+        int step=key==KeyEvent.KEYCODE_VOLUME_UP?1:-1;
+        web.evaluateJavascript("window.onVRVolumeAdjust&&window.onVRVolumeAdjust("+step+")",null);
+      }
+      return true;
+    }
+    return super.dispatchKeyEvent(event);
+  }
+
   @Override protected void onDestroy(){
     if(pending!=null){pending.deny();pending=null;}
     if(browser!=null){browser.destroy();browser=null;}
