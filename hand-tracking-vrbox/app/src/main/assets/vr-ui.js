@@ -3,7 +3,7 @@
 'use strict';
 const ui={
   page:'home',world:'passthrough',handsEnabled:true,hud:true,detail:'',hover:null,
-  hitZones:[],lastActionAt:0,
+  hitZones:[],lastActionAt:0,lowPower:false,
   worldTitle(){return ({passthrough:'Câmera real',aurora:'Ilhas do céu',neon:'Cidade neon',lunar:'Base lunar'})[this.world]||'Câmera real'}
 };
 const pages={
@@ -49,7 +49,7 @@ function drawQuad(g,project,x,y,w,h,fill,stroke,radius){
   return c;
 }
 function gradient(g,c,color,active){
-  if(typeof g.createLinearGradient!=='function')return active?'rgba(62,112,158,.92)':'rgba(29,45,75,.92)';
+  if(ui.lowPower||typeof g.createLinearGradient!=='function')return active?'rgba(62,112,158,.92)':'rgba(29,45,75,.92)';
   const fill=g.createLinearGradient(c[0][0],c[0][1],c[2][0],c[2][1]);
   fill.addColorStop(0,color);fill.addColorStop(.55,color);
   fill.addColorStop(1,active?'#20436f':'#152742');
@@ -106,6 +106,8 @@ function dock(g,project,panel){
 }
 function draw(g,panel,project,now,stats){
   ui.hitZones.length=0;
+  // Degrade softly to flat colors when frame pacing is struggling.
+  ui.lowPower=!!(stats&&stats.drawFPS>0&&stats.drawFPS<53);
   if(!panel||!panel.w||!panel.h)return;
   const w=panel.w,h=panel.h;
   g.save();g.lineJoin='round';g.textBaseline='middle';
