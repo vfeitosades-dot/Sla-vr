@@ -2,6 +2,6 @@ plugins { id 'com.android.application' }
 android {
   namespace 'com.handtracking.vrbox'
   compileSdk 35
-  defaultConfig { applicationId 'com.handtracking.vrbox'; minSdk 26; targetSdk 28; versionCode 7; versionName '2.2' }
+  defaultConfig { applicationId 'com.handtracking.vrbox'; minSdk 26; targetSdk 28; versionCode 8; versionName '2.3' }
   compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
 }
