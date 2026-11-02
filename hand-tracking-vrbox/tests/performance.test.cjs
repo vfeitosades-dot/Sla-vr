@@ -1,70 +1,109 @@
 'use strict';
 const assert=require('node:assert/strict');
-const fs=require('node:fs'),vm=require('node:vm'),path=require('node:path');
-const html=fs.readFileSync(path.join(__dirname,'../app/src/main/assets/index.html'),'utf8');
-function section(a,b){
-  const from=html.indexOf(a),to=html.indexOf(b,from);
-  assert(from>=0&&to>from,'source section not found: '+a);
-  return html.slice(from,to);
-}
-// The UI still renders at requestAnimationFrame cadence, unlike the old 26ms limiter.
-assert(/if\s*\(vr\)\s*\{[\s\S]{0,300}lastVRDraw\s*=\s*now;\s*drawVR\(\)/.test(html),'VR render must not use an artificial ~30 FPS cap');
-assert(!html.includes('now-lastVRDraw>26'));
-assert(html.includes('const vrMaxHeight=480,vrMinHeight=400'),'dynamic render scaling absent');
-assert(html.includes('R=on?.86:1')||html.includes('R=on?.9:1'),'VR panel overlays must use fewer pixels');
-assert(html.includes('xp.globalAlpha=.10;xp.drawImage(cf,0,0)')&&html.includes('xp.globalAlpha=.95;xp.drawImage(co,0,0)'),'VR must compose original hand silhouettes and outlines');
-assert(html.includes('const FOVL=70')&&html.includes('const float K1=.20,K2=.08,SC=.88;'),'orientation/lens constants lost');
-assert(html.includes('onLandmarks(await det(v))'),'live hand tracking lost');
-assert(!html.includes('const vrc=document.createElement'),'intermediate stereo canvas must be eliminated');
-
-// Render resolution: cap at 480px, dynamically downscale to 400px.
-// Lower DPI and shorter phone dimensions must not allocate larger textures.
-const sizer={devicePixelRatio:3,innerWidth:854,innerHeight:393,glc:{width:0,height:0},
-  vrQualityHeight:480,vrMaxHeight:480,gl:null,perfInfo:{renderScale:0},msg:{textContent:''},vr:true,
-  Math,addEventListener(){}};
-vm.createContext(sizer);
-vm.runInContext(section('function sizeVR(){',"addEventListener('resize'"),sizer);
-sizer.sizeVR();
-assert.equal(sizer.glc.height,480);
-assert.equal(sizer.glc.width,Math.round(480*854/393/2)*2);
-const initialWidth=sizer.glc.width;
-sizer.sizeVR();
-assert.equal(sizer.glc.width,initialWidth);
-sizer.vrQualityHeight=400;
-sizer.sizeVR();
-assert.equal(sizer.glc.height,400);
-sizer.innerHeight=240;
-sizer.sizeVR();
-assert.equal(sizer.glc.height,324,'DPR capped at 1.35');
-
-// Video to GPU: a camera frame is uploaded ONCE, even when the visual
-// overlay is rendered repeatedly at the display refresh rate.
-const transfers=[];
-const mockGL={
-  TEXTURE0:33984,TEXTURE1:33985,TEXTURE_2D:3553,RGBA:6408,UNSIGNED_BYTE:5121,TRIANGLE_STRIP:5,
-  activeTexture(unit){transfers.push(['active',unit])},
-  bindTexture(){},
-  texImage2D(...args){transfers.push(['image',args[args.length-1]])},
-  texSubImage2D(...args){transfers.push(['sub',args[args.length-1]])},
-  uniform1f(){},
-  drawArrays(){transfers.push(['draw'])}
+const fs=require('node:fs');
+const vm=require('node:vm');
+const path=require('node:path');
+const dir=path.join(__dirname,'../app/src/main');
+const html=fs.readFileSync(path.join(dir,'assets/index.html'),'utf8');
+const native=fs.readFileSync(path.join(dir,'java/com/handtracking/vrbox/MainActivity.java'),'utf8');
+const worker=fs.readFileSync(path.join(dir,'assets/hand-worker.js'),'utf8');
+const section=(a,b)=>{
+ const start=html.indexOf(a),end=html.indexOf(b,start);
+ assert(start>=0&&end>start,'source section missing: '+a);
+ return html.slice(start,end);
 };
-const v={readyState:4,videoWidth:576,videoHeight:432,currentTime:3};
-const cp={width:494,height:371};
-const upload={gl:mockGL,v,cp,glVideoTime:-1,glVideoTex:{},glOverlayTex:{},
-  glVideoW:0,glVideoH:0,glOverlayW:0,glOverlayH:0,glCamAspect:{},glOverlayAspect:{},Math};
-vm.createContext(upload);
-vm.runInContext(section('function drawVR(){','async function setVR('),upload);
-upload.drawVR();
-assert.equal(transfers.filter(x=>x[0]==='image').length,2,'camera and overlay should each be uploaded once');
-assert.equal(transfers.filter(x=>x[0]==='draw').length,1);
-transfers.length=0;
-upload.drawVR();
-assert.equal(transfers.filter(x=>x[0]==='sub'&&x[1]===v).length,0,'duplicate camera frame must not reupload');
-assert.equal(transfers.filter(x=>x[0]==='sub'&&x[1]===cp).length,1,'overlay still refreshes smoothly');
-v.currentTime=3.033;
-transfers.length=0;upload.drawVR();
-assert.equal(transfers.filter(x=>x[0]==='sub'&&x[1]===v).length,1,'new camera frame must upload');
-assert.equal(transfers.filter(x=>x[0]==='draw').length,1);
+const script=[...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)].map(x=>x[1]).join('\n');
+new vm.Script(script);
+new vm.Script(worker,{filename:'hand-worker.js'});
 
-console.log('PASS: 60Hz-capable render loop; 400-480px adaptive VR; single direct GPU pass; camera uploaded only on frame changes.');
+// Main bottleneck: old VR path uploaded the camera to WebGL on every camera frame,
+// then copied 3 other canvases to WebGL. The fast path must bypass that compositor.
+assert(html.includes('id="fastvr"'),'direct video VR container missing');
+assert(html.includes("if(fastVRActive)renderFastStereo();else drawVR();"),'fast VR not selected');
+assert(html.includes("if(fastVRActive){paintVRHand(xp,T);continue}"),'extra hand canvases rendered in fast mode');
+assert(html.includes('cf.width=co.width=1'),'hidden canvases must shrink in fast mode');
+assert(html.includes('R=on?.70:1'),'VR overlay must be low resolution');
+assert(html.includes('R=Math.max(.54'),'adaptive reduction missing');
+assert(html.includes("const FOVL=70"),'camera tracking lost');
+assert(html.includes('const float K1=.20,K2=.08,SC=.88;'),'lens fallback lost');
+assert(html.includes('onLandmarks(await det(v))'),'compatibility hand detector lost');
+assert(!html.includes('now-lastVRDraw>26'),'30 Hz artificial render throttle');
+assert(native.includes('"/assets/hand-worker.js"'),'Android needs to serve same-origin worker');
+assert(worker.includes("delegate:'CPU'"),'inference worker should avoid competing for VR GPU');
+assert(worker.includes('detectForVideo(canvas,now)'),'hand inference missing');
+
+// Verify stereo creates two actual video compositing surfaces sharing ONE stream,
+// with matching overlays, and entering and exiting does not open a new camera.
+const stats=[];
+const stream={id:'one camera stream'};
+const canvases=[];
+function el(tag){
+  const element={tagName:tag,style:{},children:[],width:1,height:1,srcObject:null,
+    append(...children){this.children.push(...children)},
+    appendChild(child){this.children.push(child)},
+    setAttribute(){},
+    play(){this.playing=true;return Promise.resolve()},
+    pause(){this.playing=false}};
+  if(tag==='canvas'){
+    const draws=[];
+    element.getContext=()=>({draws,clearRect(){},drawImage(source){draws.push(source)}});
+    canvases.push(element);
+  }
+  return element;
+}
+const layout={
+  document:{createElement:el},fastvr:el('div'),stage:el('div'),glc:el('canvas'),
+  cp:{width:400,height:300},v:{srcObject:stream},perfInfo:{drawFPS:59,handsFPS:14},
+  console,Math
+};
+vm.createContext(layout);
+vm.runInContext(section('let fastVRActive=false,fastVREyes=[];','function makeTexture('),layout);
+layout.setFastStereo(true);
+const eyes=vm.runInContext('fastVREyes',layout);
+assert.equal(eyes.length,2);
+assert.equal(eyes[0].video.srcObject,stream);
+assert.equal(eyes[1].video.srcObject,stream);
+assert.equal(layout.fastvr.style.display,'flex');
+assert.equal(layout.stage.style.visibility,'hidden');
+layout.renderFastStereo();
+assert.equal(eyes[0].ctx.draws.length,1);
+assert.equal(eyes[1].ctx.draws.length,1);
+assert.equal(eyes[0].ctx.draws[0],layout.cp);
+assert.equal(eyes[0].overlay.width,400);
+assert.equal(eyes[1].overlay.height,300);
+layout.showVRStats();
+assert.match(eyes[0].stats.textContent,/59 FPS/);
+layout.setFastStereo(false);
+assert.equal(eyes[0].video.srcObject,null);
+assert.equal(layout.fastvr.style.display,'none');
+assert.equal(layout.stage.style.visibility,'');
+
+// Ensure video snapshots are transferred to the worker and inference never
+// executes on the main thread when background mode is available.
+let currentWorker;
+class FakeWorker{
+  constructor(url,options){assert.equal(url,'/assets/hand-worker.js');assert.equal(options.type,'module');currentWorker=this}
+  postMessage(value,transfers){this.data=value;this.transfers=transfers}
+  terminate(){this.terminated=true}
+  emit(value){this.onmessage({data:value})}
+}
+let foundHands,handCount=0,bitmap={closed:false,close(){this.closed=true}};
+const hands={Worker:FakeWorker,createImageBitmap:async()=>bitmap,
+  setTimeout:()=>3,clearTimeout(){},performance:{now:()=>123},mode:'',
+  onLandmarks:points=>{foundHands=points},handCount:0,
+  console,Promise,Error};
+vm.createContext(hands);
+vm.runInContext(section('async function initWorkerHands(){','async function initTasks(){'),hands);
+(async()=>{
+ const promise=hands.initWorkerHands();
+ currentWorker.emit({type:'ready'});
+ const detect=await promise;
+ assert.equal(detect.worker,true);
+ await detect({readyState:4});
+ assert.equal(currentWorker.data.type,'frame');
+ assert.equal(currentWorker.transfers[0],bitmap);
+ currentWorker.emit({type:'result',landmarks:[[{x:.2,y:.3,z:.1}]]});
+ assert.equal(foundHands.length,1);
+ assert.equal(hands.handCount,1);
+ console.log('PASS: native dual-video stereo, one camera stream, single overlay, 60Hz renderer, worker hand inference, clean VR teardown');
+})().catch(e=>{console.error(e);process.exitCode=1});
