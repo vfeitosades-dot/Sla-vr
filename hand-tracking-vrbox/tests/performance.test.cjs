@@ -55,6 +55,7 @@ function el(tag){
 const originalVideo=el('video');originalVideo.srcObject=stream;
 const layout={
   document:{createElement:el},fastvr:el('div'),stage:el('div'),glc:el('canvas'),
+  worldpreview:el('canvas'),VRUI:{world:'passthrough',hud:true},
   cp:{width:400,height:300},v:originalVideo,perfInfo:{drawFPS:59,handsFPS:14},
   console,Math
 };
