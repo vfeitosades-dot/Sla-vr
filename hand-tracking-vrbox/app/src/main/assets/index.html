@@ -102,6 +102,7 @@ function newTrack(raw,t){
   T.qr=handQuat(T.f);T.q=T.qr;return T}
 
 function onLandmarks(L){
+  if(!VRUI.handsEnabled){tracks=[];return}
   const t=performance.now()/1000,used=new Set();
   L.forEach(h=>{
     if(!h||h.length!==21||h.some(p=>!Number.isFinite(p.x)||!Number.isFinite(p.y)||!Number.isFinite(p.z)))return;
@@ -533,6 +534,24 @@ function drawVR(){
   gl.uniform1f(glOverlayAspect,cp.width/cp.height);
   gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
 }
+function paintVRHand(g,T){
+  // O desenho completo da mão havia sido removido na versão anterior.
+  // Restaura a silhueta translúcida e o contorno nítido do HTML original.
+  if(!T||!T.P||T.P.length<22||!Number.isFinite(T.s)||T.s<2)return;
+  const size=T.s,outline=Math.max(2,size*.014);
+  g.save();g.lineJoin='round';g.lineCap='round';
+  g.globalAlpha=.14;shape(g,T.P,size,0,'#fff');
+  g.globalAlpha=.97;shape(g,T.P,size,outline,'#fff');
+  g.globalCompositeOperation='destination-out';shape(g,T.P,size,0,'#000');
+  g.globalCompositeOperation='source-over';
+  g.globalAlpha=.99;
+  if(T.pinch&&T.pp){
+    g.beginPath();g.arc(T.pp[0],T.pp[1],Math.max(3,size*.065),0,Math.PI*2);
+    g.fillStyle='#8fffd2';g.fill();
+    g.lineWidth=Math.max(1,size*.014);g.strokeStyle='#fff';g.stroke();
+  }
+  g.restore();
+}
 async function setVR(on){
   vr=on;R=on?.70:1;
   vrb.style.display=on?'none':'block';
@@ -759,10 +778,15 @@ async function initWorkerHands(){
   if(typeof Worker==='undefined'||typeof createImageBitmap!=='function')
     throw Error('Worker de mãos indisponível neste WebView');
   const worker=new Worker('/assets/hand-worker.js',{type:'module'});
-  let busy=false,failures=0,dead=false;
+  let busy=false,failures=0,dead=false,lastSentAt=0;
   let fn=async video=>{
-    if(busy||dead||video.readyState<2)return;
-    busy=true;
+    if(dead||video.readyState<2)return;
+    if(busy){
+      // Detector congelado: retornar automaticamente ao modelo compatível.
+      if(performance.now()-lastSentAt>3000){dead=true;fn.dead=true;worker.terminate()}
+      return;
+    }
+    busy=true;lastSentAt=performance.now();
     try{
       // Browser asynchronously snapshots a camera frame; only one is in flight.
       const bitmap=await createImageBitmap(video);
@@ -774,7 +798,8 @@ async function initWorkerHands(){
       if(failures>=4){dead=true;fn.dead=true;worker.terminate()}
     }
   };
-  fn.worker=true;fn.dead=false;
+  fn.worker=true;fn.dead=false;fn.lastResult=performance.now();
+  fn.stop=()=>{dead=true;fn.dead=true;worker.terminate()};
   return await new Promise((resolve,reject)=>{
     const timeout=setTimeout(()=>{
       dead=true;worker.terminate();
@@ -788,7 +813,7 @@ async function initWorkerHands(){
         clearTimeout(timeout);dead=true;fn.dead=true;
         worker.terminate();reject(Error(data.message||'Erro iniciando worker'));
       }else if(data.type==='result'){
-        busy=false;failures=0;
+        busy=false;failures=0;fn.lastResult=performance.now();
         onLandmarks(data.landmarks||[]);
         handCount++;
       }else if(data.type==='frame-error'){
@@ -809,7 +834,8 @@ async function initTasks(){
   const mk=d=>HandLandmarker.createFromOptions(fs,{baseOptions:{modelAssetPath:MODEL,delegate:d},runningMode:'VIDEO',numHands:2,minHandDetectionConfidence:.46,minHandPresenceConfidence:.45,minTrackingConfidence:.56});
   let lm;try{lm=await mk('GPU');mode='GPU'}catch(e){lm=await mk('CPU');mode='CPU'}
   let lastTs=0;
-  return async vid=>{const ts=Math.max(performance.now(),lastTs+1);lastTs=ts;return lm.detectForVideo(vid,ts).landmarks||[]};
+  const detect=async vid=>{const ts=Math.max(performance.now(),lastTs+1);lastTs=ts;return lm.detectForVideo(vid,ts).landmarks||[]};
+  detect.stop=()=>{if(typeof lm.close==='function')lm.close()};return detect;
 }
 const loadScript=u=>new Promise((ok,no)=>{const e=document.createElement('script');e.src=u;e.onload=ok;e.onerror=no;document.head.appendChild(e)});
 async function initLegacy(){
@@ -820,7 +846,8 @@ async function initLegacy(){
   let res=[];hd.onResults(r=>{res=r.multiHandLandmarks||[]});
   const sc=document.createElement('canvas');sc.width=384;sc.height=Math.round(384*CH/CW);const sg=sc.getContext('2d');
   mode='compatível';
-  return async vid=>{sg.drawImage(vid,0,0,sc.width,sc.height);await hd.send({image:sc});return res};
+  const detect=async vid=>{sg.drawImage(vid,0,0,sc.width,sc.height);await hd.send({image:sc});return res};
+  detect.stop=()=>{if(typeof hd.close==='function')hd.close()};return detect;
 }
 
 go.onclick=async()=>{
@@ -839,7 +866,7 @@ go.onclick=async()=>{
     const queueFrame=fn=>v.requestVideoFrameCallback?v.requestVideoFrameCallback(fn):requestAnimationFrame(fn);
     const motionLoop=()=>{
       const t=performance.now();
-      if(!document.hidden&&v.readyState>=2&&v.currentTime!==lastGyFrame&&t-lastGyAt>=Math.max(vr?85:handEMA>55?78:handEMA>32?62:48,gyroEMA*1.7)){
+      if(!browserVisible&&!document.hidden&&v.readyState>=2&&v.currentTime!==lastGyFrame&&t-lastGyAt>=Math.max(vr?85:handEMA>55?78:handEMA>32?62:48,gyroEMA*1.7)){
         lastGyFrame=v.currentTime;lastGyAt=t;
         const began=performance.now();
         try{const mo=gyroStep(v);gyroCount++;if(panel.init&&!panel.grab)applyCam(mo)}catch(e){console.warn('Direção:',e)}
@@ -858,14 +885,34 @@ go.onclick=async()=>{
     msg.textContent='';
     let recoveringHands=false;
     const handsLoop=async()=>{
+      if(browserVisible){if(started)queueFrame(handsLoop);return}
+      if(handsResetRequest&&!recoveringHands){
+        const requested=handsResetRequest;handsResetRequest='';
+        recoveringHands=true;const old=det;
+        try{
+          det=requested==='compat'?await initLegacy():await initWorkerHands();
+          if(old&&typeof old.stop==='function')old.stop();
+          mode=det.worker?'IA em segundo plano':'compatível';
+          msg.textContent='';
+        }catch(err){
+          console.warn('Não foi possível trocar o detector de mãos:',err);
+          if(requested==='worker'){
+            try{det=await initLegacy();if(old?.stop)old.stop();mode='compatível';}
+            catch(e){det=old}
+          }else det=old;
+          msg.textContent='IA atual: '+mode;
+        }finally{recoveringHands=false}
+      }
       if(det.worker&&det.dead&&!recoveringHands){
-        recoveringHands=true;
-        try{det=await initLegacy()}catch(err){console.warn('Falha no fallback:',err);}
+        recoveringHands=true;const old=det;
+        try{det=await initLegacy();mode='compatível';if(old?.stop)old.stop()}
+        catch(err){console.warn('Falha no detector alternativo:',err);}
         recoveringHands=false;
       }
+      if(!VRUI.handsEnabled){tracks=[];if(started)queueFrame(handsLoop);return}
       const t=performance.now(),base=det.worker?62:handEMA>55?145:handEMA>33?110:handEMA>19?88:70;
       const target=(vr&&perfInfo.drawFPS>0&&perfInfo.drawFPS<50)?Math.max(base,125):base;
-      if(!document.hidden&&v.readyState>=2&&v.currentTime!==lastHandFrame&&t-lastHandAt>=target){
+      if(!browserVisible&&!document.hidden&&v.readyState>=2&&v.currentTime!==lastHandFrame&&t-lastHandAt>=target){
         lastHandFrame=v.currentTime;lastHandAt=t;
         const began=performance.now();
         try{
