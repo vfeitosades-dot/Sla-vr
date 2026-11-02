@@ -9,6 +9,9 @@
 html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,sans-serif;overflow:hidden;touch-action:none}
 #stage{position:fixed;inset:0}
 video,canvas{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+#worldpreview{z-index:0;opacity:0;pointer-events:none}
+#stage video{z-index:0}
+#stage #cp,#stage #cf,#stage #co{z-index:2;pointer-events:none}
 #cf{opacity:.10}#co{opacity:.95}
 #glc{position:fixed;inset:0;width:100%;height:100%;display:none;z-index:6;background:#000}
 /* Camera stream is composed by Android/Chromium instead of gl.texSubImage2D. */
@@ -16,9 +19,11 @@ video,canvas{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 #fastvr .eye{width:50%;height:100%;position:relative;overflow:hidden;flex:0 0 50%;background:#000;border-radius:44% / 48%;contain:layout paint}
 #fastvr .eye video,#fastvr .eye canvas{position:absolute;width:100%;height:100%;left:0;top:0;object-fit:cover;transform:none;pointer-events:none}
 #fastvr .eye video{z-index:1}
-#fastvr .eye canvas{z-index:2}
+#fastvr .eye canvas.world-layer{z-index:1;visibility:hidden}
+#fastvr .eye canvas.hand-layer{z-index:2}
 #fastvr .divider{position:absolute;left:calc(50% - 1px);top:0;bottom:0;width:2px;background:#000;z-index:3}
-#fastvr .stats{position:absolute;left:5%;top:5%;z-index:4;font:11px/1.2 system-ui,sans-serif;color:#d2ffdf;background:#001c1390;padding:4px 6px;border-radius:6px;pointer-events:none}
+#fastvr .stats{position:absolute;left:5%;top:5%;z-index:4;font:11px/1.2 system-ui,sans-serif;color:#d2ffdf;background:#001c1390;padding:4px 6px;border-radius:6px;pointer-events:none;white-space:nowrap}
+#fastvr .eye:before{content:'';position:absolute;inset:0;border-radius:45%;border:1px solid #7eb9df24;z-index:3;pointer-events:none}
 
 #vrb{display:none;left:auto;right:16px;transform:none;padding:10px 14px;font-size:13px;background:rgba(255,255,255,.16);color:#fff;border:1px solid rgba(255,255,255,.45);backdrop-filter:blur(6px)}
 #msg{position:fixed;left:0;right:0;top:calc(env(safe-area-inset-top,0px) + 12px);text-align:center;font-size:14px;z-index:5;text-shadow:0 1px 4px #000}
@@ -28,6 +33,7 @@ button{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 24p
 <body>
 <div id="stage">
 <video id="v" playsinline muted></video>
+<canvas id="worldpreview"></canvas>
 <canvas id="cp"></canvas><canvas id="cf"></canvas><canvas id="co"></canvas>
 </div>
 <div id="fastvr" aria-label="Imagem estéreo para VR Box"></div>
@@ -35,10 +41,15 @@ button{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 24p
 <div id="msg">Toque em Iniciar e permita a câmera</div>
 <button id="go">Iniciar</button>
 <button id="vrb">🥽 Modo VR Box</button>
+<script src="/assets/worlds.js"></script>
+<script src="/assets/vr-ui.js"></script>
 <script>
 const $=id=>document.getElementById(id);
 const vrb=$('vrb'),glc=$('glc'),fastvr=$('fastvr'),stage=$('stage');
-const v=$('v'),cp=$('cp'),cf=$('cf'),co=$('co'),msg=$('msg'),go=$('go');
+const v=$('v'),cp=$('cp'),cf=$('cf'),co=$('co'),msg=$('msg'),go=$('go'),worldpreview=$('worldpreview');
+const worldCtx=worldpreview.getContext('2d',{alpha:false});
+let lastWorldDraw=0,lastVRWorld=null,browserVisible=false,handsResetRequest='';
+window.onVRBrowserVisibility=visible=>{browserVisible=!!visible;if(visible)tracks=[];};
 const xp=cp.getContext('2d',{alpha:true}),xf=cf.getContext('2d',{alpha:true}),xo=co.getContext('2d',{alpha:true});
 let CW=640,CH=480;let R=.9; // coordenadas de vídeo preservadas, rasterização reduzida
 function resizeOverlay(){
@@ -358,12 +369,16 @@ function prepareFastStereo(){
     const clip=document.createElement('div');clip.className='eye';
     const video=eye===0?v:document.createElement('video');video.autoplay=true;video.muted=true;
     video.playsInline=true;video.setAttribute('playsinline','');video.setAttribute('muted','');
-    const overlay=document.createElement('canvas'),ctx=overlay.getContext('2d',{alpha:true});
+    const worldLayer=document.createElement('canvas');worldLayer.className='world-layer';
+    worldLayer.width=384;worldLayer.height=240;
+    const worldLayerCtx=worldLayer.getContext('2d',{alpha:false});
+    const overlay=document.createElement('canvas');overlay.className='hand-layer';
+    const ctx=overlay.getContext('2d',{alpha:true});
     if(!ctx)throw new Error('Canvas VR indisponível');
     const stats=document.createElement('span');stats.className='stats';
     stats.textContent='VR iniciado';
-    clip.append(video,overlay,stats);fastvr.appendChild(clip);
-    fastVREyes.push({video,overlay,ctx,stats});
+    clip.append(video,worldLayer,overlay,stats);fastvr.appendChild(clip);
+    fastVREyes.push({video,worldLayer,worldLayerCtx,overlay,ctx,stats});
   }
   const divider=document.createElement('div');divider.className='divider';fastvr.appendChild(divider);
 }
@@ -379,6 +394,7 @@ function setFastStereo(enabled){
     fastvr.style.display='flex';glc.style.display='none';
     stage.style.visibility='hidden';
     updateFastOverlaySize();
+    updateWorldVisibility();
   }else{
     fastVRActive=false;
     fastvr.style.display='none';stage.style.visibility='';
@@ -394,6 +410,32 @@ function updateFastOverlaySize(){
   fastVROverlayW=w;fastVROverlayH=h;
   for(const eye of fastVREyes){eye.overlay.width=w;eye.overlay.height=h}
 }
+function updateWorldVisibility(){
+  const active=VRUI.world!=='passthrough';
+  v.style.opacity=active?'0':'1';
+  worldpreview.style.opacity=active?'1':'0';
+  for(const eye of fastVREyes){
+    eye.video.style.opacity=active?'0':'1';
+    eye.worldLayer.style.visibility=active?'visible':'hidden';
+  }
+  lastWorldDraw=0;
+}
+function drawWorld(now){
+  if(browserVisible||VRUI.world==='passthrough')return;
+  if(now-lastWorldDraw<90)return; // ~11 Hz; head/UI refreshes independently.
+  lastWorldDraw=now;
+  const scene=VRWorlds.render(VRUI.world,now,gy.yaw,gy.pitch);
+  if(!scene)return;
+  if(fastVRActive){
+    for(const eye of fastVREyes){
+      eye.worldLayerCtx.clearRect(0,0,384,240);
+      eye.worldLayerCtx.drawImage(scene,0,0,384,240);
+    }
+  }else{
+    if(worldpreview.width!==384){worldpreview.width=384;worldpreview.height=240}
+    worldCtx.drawImage(scene,0,0,384,240);
+  }
+}
 function renderFastStereo(){
   updateFastOverlaySize();
   // CPU canvas pequeno apenas para painéis e mãos. O vídeo não passa por canvas.
@@ -403,8 +445,8 @@ function renderFastStereo(){
   }
 }
 function showVRStats(){
-  const label='VR '+perfInfo.drawFPS+' FPS · mãos '+perfInfo.handsFPS+' Hz';
-  for(const eye of fastVREyes)if(eye.stats.textContent!==label)eye.stats.textContent=label;
+  const label='VR '+perfInfo.drawFPS+' FPS · IA '+perfInfo.handsFPS+' Hz · mãos '+tracks.length+(mode?' · '+mode:'');
+  for(const eye of fastVREyes){eye.stats.style.display=VRUI.hud?'':'none';if(eye.stats.textContent!==label)eye.stats.textContent=label}
 }
 function initGL(){
   if(gl)return;
@@ -558,6 +600,7 @@ function render(now){
     }
   }
   const t=now/1000,k=1-Math.exp(-dt*45),kq=1-Math.exp(-dt*20);
+  drawWorld(now);
   tracks=tracks.filter(T=>t-T.seen<.42);
   if(panel.grab&&!tracks.includes(panel.grab.T))panel.grab=null;
   xp.setTransform(R,0,0,R,0,0);xp.clearRect(0,0,CW,CH);
