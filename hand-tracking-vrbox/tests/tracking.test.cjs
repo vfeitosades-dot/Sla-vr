@@ -38,7 +38,7 @@ for(const [dx,dy] of [[0,0],[3,0],[-3,0],[8,0],[-8,0],[13,0],[-13,0],[0,7],[5,5]
   assert(Math.abs(gyro.pty-dy)<1.6,'wrong pitch on '+dx+','+dy+': '+gyro.pty);
 }
 let time=1000;
-const handed={CW:640,CH:480,Math,Set,performance:{now:()=>time}};
+const handed={CW:640,CH:480,Math,Set,performance:{now:()=>time},VRUI:{handsEnabled:true}};
 vm.createContext(handed);
 vm.runInContext(section('class OE{','function shape(')+'\nglobalThis.handTest={tracks,onLandmarks};',handed);
 const {tracks,onLandmarks}=handed.handTest;
