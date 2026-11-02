@@ -68,6 +68,6 @@ jobs:
         with:
           tag_name: handtracking-vrbox-auto
           name: Hand Tracking VR Box - APK automatico
-          body: 'Versao 1.2: renderizacao VR com meta 60 FPS, resolucao adaptativa e otimizacao de recursos sem alterar a interface. Compilacao automatica de teste. Requer camera, acesso a internet para MediaPipe e Android WebView atualizado.'
+          body: 'Versao 1.3: VR leve com duas vistas de video aceleradas pelo Android, sem transferencias continuas da camera para WebGL. Rastreamento de maos em worker quando suportado, resolucao adaptativa e medidor real de FPS. Meta 60 FPS (nao garantidos); a camera pode enviar apenas 30 quadros/s. Requer permissao de camera, internet para MediaPipe e Android WebView atualizado.'
           files: HandTrackingVRBox.apk
           overwrite_files: true
