@@ -607,6 +607,8 @@ function updateVRCalibration(){
     const eye=fastEyes[i],tr=vrTransforms(i);
     eye.scene.style.transform='translate3d('+tr.x.toFixed(3)+'%,'+tr.y.toFixed(3)+'%,0) scale('+tr.scale.toFixed(3)+')';
     eye.scene.style.visibility=(vrCalibration.eyeMode==='both'||vrCalibration.eyeMode===(i===0?'left':'right'))?'visible':'hidden';
+    if(eye.label)eye.label.textContent=(i===0?'ESQUERDO':'DIREITO')+
+      ' · '+vrCalibration.ipdMm.toFixed(0)+' mm · VOL+ AFASTA';
   }
   $('fastvr').classList.toggle('guides',vrCalibration.guides||vrCalibrationSession);
   $('vripd').value=String(vrCalibration.ipdMm);
@@ -653,7 +655,6 @@ $('vrdefault').onclick=()=>{
 };
 $('vrtest').onclick=async()=>{
   toggleVRPanel(false);
-  vrCalibration.eyeMode='both';
   setCalibrationSession(true);
   if(!vr)await setVR(true);
 };
@@ -681,7 +682,7 @@ function fastInit(){
     label.textContent=i===0?'OLHO ESQUERDO':'OLHO DIREITO';
     scene.append(vid,overlay,target);eye.append(scene,label);root.append(eye);
     vid.style.visibility=activeWorld==='passthrough'?'visible':'hidden';
-    fastEyes.push({eye,scene,vid,overlay,ctx:overlay.getContext('2d',{alpha:true})});
+    fastEyes.push({eye,scene,vid,overlay,label,ctx:overlay.getContext('2d',{alpha:true})});
   }
   const divider=document.createElement('div');divider.className='divider';root.append(divider);
   updateVRCalibration();
@@ -740,7 +741,10 @@ async function setVR(on){
     try{if(document.fullscreenElement)await document.exitFullscreen()}catch(e){}
   }
 }
-vrb.onclick=()=>setVR(true);
+vrb.onclick=()=>{
+  vrCalibration.eyeMode='both';setCalibrationSession(false);
+  updateVRCalibration();setVR(true);
+};
 
 /* ---------- gestos: toque = clicar · segurar = recentrar · toque duplo = sair do VR ---------- */
 let pressT=null,lastTap=0,pdown=null;
