@@ -27,7 +27,7 @@ jobs:
           const html=fs.readFileSync('hand-tracking-vrbox/app/src/main/assets/index.html','utf8');
           const js=[...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)].map(m=>m[1]).join('\n');
           new (require('vm').Script)(js);
-          if(!html.includes('Modo VR Box'))throw Error('Modo VR Box ausente');
+          if(!html.includes('function setVR(on)'))throw Error('Modo VR Box ausente');
           console.log('JavaScript e modo VR Box verificados');
           NODE
       - name: Validar recursos do HTML enviado e do modo rapido
