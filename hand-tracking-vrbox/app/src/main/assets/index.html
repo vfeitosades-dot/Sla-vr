@@ -10,6 +10,9 @@ html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font-family:
 #stage{position:fixed;inset:0}
 video,canvas{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 canvas{pointer-events:none}
+#worldpreview{z-index:0;display:none}
+#stage video{z-index:0}
+#stage #cp,#stage #cf,#stage #co{z-index:2}
 #cf{opacity:.10}#co{opacity:.95}
 #glc{position:fixed;inset:0;width:100%;height:100%;display:none;z-index:6;background:#000}
 #msg{position:fixed;left:0;right:0;top:calc(env(safe-area-inset-top,0px) + 12px);text-align:center;font-size:14px;z-index:5;text-shadow:0 1px 4px #000}
@@ -27,7 +30,7 @@ button{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 24p
 </head>
 <body>
 <div id="stage">
-<video id="v" playsinline muted></video>
+<video id="v" playsinline muted></video><canvas id="worldpreview"></canvas>
 <canvas id="cp"></canvas><canvas id="cf"></canvas><canvas id="co"></canvas>
 </div>
 <canvas id="glc"></canvas><div id="fastvr"></div><div id="vrstats"></div>
@@ -118,13 +121,34 @@ let FOVL=68;try{FOVL=+localStorage.getItem('fov')||68}catch(e){}
 const S={hands:true,shift:false},WINS=[];let zc=0,grab=null,ORD=[],flash=0;
 const bat={l:null,c:false};try{navigator.getBattery&&navigator.getBattery().then(b=>{const u=()=>{bat.l=b.level;bat.c=b.charging};u();b.onlevelchange=b.onchargingchange=u})}catch(e){}
 const gal=[],br={hist:[],i:-1,input:'',url:''};
+let activeWorld='passthrough',lastWorldDraw=0;
+function setWorld(id){
+  if(!window.VRWorlds||!window.VRWorlds.list.some(w=>w.id===id))return;
+  activeWorld=id;lastWorldDraw=0;
+  const virtual=id!=='passthrough';
+  v.style.visibility=virtual?'hidden':'visible';
+  $('worldpreview').style.display=virtual?'block':'none';
+  for(const e of fastEyes)e.vid.style.visibility=virtual?'hidden':'visible';
+  for(const w of WINS)w.sig='';
+}
+function drawWorld(now){
+  if(activeWorld==='passthrough'||!window.VRWorlds||now-lastWorldDraw<100)return;
+  lastWorldDraw=now;
+  const q=gy.Qd;
+  const yaw=Math.atan2(2*(q[0]*q[2]+q[1]*q[3]),1-2*(q[2]*q[2]+q[3]*q[3]))*180/Math.PI;
+  const pitch=Math.asin(Math.max(-1,Math.min(1,2*(q[0]*q[1]-q[3]*q[2]))))*180/Math.PI;
+  const pic=VRWorlds.render(activeWorld,now,yaw,pitch);if(!pic)return;
+  const preview=$('worldpreview');
+  if(preview.width!==pic.width||preview.height!==pic.height){preview.width=pic.width;preview.height=pic.height;}
+  preview.getContext('2d').drawImage(pic,0,0);
+}
 const fr=document.createElement('iframe');
 fr.setAttribute('sandbox','allow-scripts allow-same-origin allow-forms allow-popups');fr.referrerPolicy='no-referrer';
 fr.style.cssText='position:absolute;left:0;top:0;border:0;background:#fff;transform-origin:0 0;display:none;border-radius:14px;pointer-events:auto';
 stage.insertBefore(fr,cp);
 
 const CFG={dock:{dw:480,dh:84,fixed:1,dir:[0,.31,1]},status:{dw:280,dh:44,fixed:1,dir:[0,.215,1]},
-  lib:{dw:640,dh:410},web:{dw:640,dh:424},cfg:{dw:480,dh:410},gal:{dw:560,dh:380},kbd:{dw:640,dh:330}};
+  lib:{dw:640,dh:410},worlds:{dw:640,dh:410},web:{dw:640,dh:424},cfg:{dw:480,dh:410},gal:{dw:560,dh:380},kbd:{dw:640,dh:330}};
 const kk=W=>CW/760;
 function camToWorld(vv){const M=qmat(gy.Qd);return[0,1,2].map(i=>M[i][0]*vv[0]+M[i][1]*vv[1]+M[i][2]*vv[2])}
 function mkWin(type,dir){
@@ -206,11 +230,23 @@ function paint(W){
   }else if(t==='lib'){
     bg(g,dw,dh,30);txt(g,'Biblioteca',32,38,26,600);closeBtn();bar();
     [['web','Navegador','#2f6fed',()=>openApp('web')],['cam','Câmera','#7a54e8',capture],['gal','Galeria','#e0663c',()=>openApp('gal')],
-     ['cfg','Configurações','#4b5563',()=>openApp('cfg')],['vr','Modo VR','#17a589',()=>setVR(true)],['ctr','Recentrar','#b8860b',recenter]].forEach(([n,l,c,a],i)=>{
+     ['cfg','Configurações','#4b5563',()=>openApp('cfg')],['vr','Mundos','#17a589',()=>openApp('worlds')],['ctr','Recentrar','#b8860b',recenter]].forEach(([n,l,c,a],i)=>{
       const x=40+(i%3)*192,y=84+(i/3|0)*(128+14);
       g.fillStyle=c;g.globalAlpha=.85;rrp(g,x,y,176,128,22);g.fill();g.globalAlpha=1;
       wgt('t'+n,x,y,176,128,a,22);icon(g,n,x+88,y+52,40);txt(g,l,x+88,y+104,19,500,'#fff','center')});
-  }else if(t==='web'){
+   }else if(t==='worlds'){
+     bg(g,dw,dh,30);txt(g,'Mundos virtuais',32,38,26,600);closeBtn();bar();
+     const worlds=window.VRWorlds?.list||[];
+     worlds.forEach((world,i)=>{
+       const x=40+(i%2)*292,y=84+(i/2|0)*138;
+       g.fillStyle=['#296f93','#268c86','#6949a6','#465f8d'][i]||'#365c7e';
+       rrp(g,x,y,272,126,22);g.fill();
+       wgt('world'+i,x,y,272,126,()=>setWorld(world.id),22);
+       txt(g,world.icon,x+28,y+47,36,600);
+       txt(g,world.name,x+85,y+48,19,600);
+       txt(g,activeWorld===world.id?'✓ Ativo':'Abrir ambiente',x+85,y+86,15,500,'#e0faff');
+     });
+   }else if(t==='web'){
     bg(g,dw,dh,30);closeBtn();bar();
     [['‹',18,()=>navGo(-1)],['›',68,()=>navGo(1)],['↻',118,navReload],['⌂',168,navHome]].forEach(([s,x,a])=>{wgt('b'+s,x,18,44,44,a,22);txt(g,s,x+22,40,28,500,'#fff','center')});
     wgt('url',222,18,dw-222-62,44,()=>openApp('kbd'),22);
@@ -256,6 +292,7 @@ function sigOf(W){
   if(t==='web')return b+br.url+br.input+br.i+vr;
   if(t==='cfg')return b+FOVL+S.hands+gy.ok;
   if(t==='gal')return b+gal.length;
+   if(t==='worlds')return b+activeWorld;
   if(t==='kbd')return b+S.shift+br.input;
   return b;
 }
@@ -465,6 +502,7 @@ function fastInit(){
     const vid=document.createElement('video');vid.autoplay=true;vid.muted=true;vid.playsInline=true;
     const overlay=document.createElement('canvas');overlay.width=320;overlay.height=240;
     eye.append(vid,overlay);root.append(eye);
+    vid.style.visibility=activeWorld==='passthrough'?'visible':'hidden';
     fastEyes.push({vid,overlay,ctx:overlay.getContext('2d',{alpha:true})});
   }
 }
@@ -483,6 +521,7 @@ function drawFastVR(){
     const {overlay,ctx}=eye;
     if(overlay.width!==320||overlay.height!==240){overlay.width=320;overlay.height=240;}
     ctx.clearRect(0,0,320,240);
+    if(activeWorld!=='passthrough'&&window.VRWorlds){const pic=$('worldpreview');if(pic.width&&pic.height)ctx.drawImage(pic,0,0,320,240);}
     const srcW=cp.width,srcH=cp.height,k=Math.max(320/srcW,240/srcH),dw=srcW*k,dh=srcH*k;
     ctx.drawImage(cp,(320-dw)/2,(240-dh)/2,dw,dh);
     ctx.globalAlpha=.1;ctx.drawImage(cf,(320-dw)/2,(240-dh)/2,dw,dh);
@@ -529,6 +568,7 @@ function render(now){
   xp.setTransform(R,0,0,R,0,0);xf.setTransform(R,0,0,R,0,0);xo.setTransform(R,0,0,R,0,0);
   xp.clearRect(0,0,CW,CH);xf.clearRect(0,0,CW,CH);xo.clearRect(0,0,CW,CH);
 
+  drawWorld(now);
   // mãos: suavização + previsão, escala e pinça
   for(const T of tracks){
     const el=Math.min(t-T.tm,.07);
@@ -657,5 +697,6 @@ go.onclick=async()=>{
   }catch(e){msg.textContent='Erro: '+e.message;go.style.display='block'}
 };
 </script>
+<script src="./worlds.js"></script>
 </body>
 </html>
