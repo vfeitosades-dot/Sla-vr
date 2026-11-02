@@ -9,57 +9,38 @@
 html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,sans-serif;overflow:hidden;touch-action:none}
 #stage{position:fixed;inset:0}
 video,canvas{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
-#worldpreview{z-index:0;opacity:0;pointer-events:none}
-#stage video{z-index:0}
-#stage #cp,#stage #cf,#stage #co{z-index:2;pointer-events:none}
+canvas{pointer-events:none}
 #cf{opacity:.10}#co{opacity:.95}
 #glc{position:fixed;inset:0;width:100%;height:100%;display:none;z-index:6;background:#000}
-/* Camera stream is composed by Android/Chromium instead of gl.texSubImage2D. */
-#fastvr{position:fixed;inset:0;display:none;z-index:6;background:#000;overflow:hidden}
-#fastvr .eye{width:50%;height:100%;position:relative;overflow:hidden;flex:0 0 50%;background:#000;border-radius:44% / 48%;contain:layout paint}
-#fastvr .eye video,#fastvr .eye canvas{position:absolute;width:100%;height:100%;left:0;top:0;object-fit:cover;transform:none;pointer-events:none}
-#fastvr .eye video{z-index:1}
-#fastvr .eye canvas.world-layer{z-index:1;visibility:hidden}
-#fastvr .eye canvas.hand-layer{z-index:2}
-#fastvr .divider{position:absolute;left:calc(50% - 1px);top:0;bottom:0;width:2px;background:#000;z-index:3}
-#fastvr .stats{position:absolute;left:5%;top:5%;z-index:4;font:11px/1.2 system-ui,sans-serif;color:#d2ffdf;background:#001c1390;padding:4px 6px;border-radius:6px;pointer-events:none;white-space:nowrap}
-#fastvr .eye:before{content:'';position:absolute;inset:0;border-radius:45%;border:1px solid #7eb9df24;z-index:3;pointer-events:none}
-
-#vrb{display:none;left:auto;right:16px;transform:none;padding:10px 14px;font-size:13px;background:rgba(255,255,255,.16);color:#fff;border:1px solid rgba(255,255,255,.45);backdrop-filter:blur(6px)}
 #msg{position:fixed;left:0;right:0;top:calc(env(safe-area-inset-top,0px) + 12px);text-align:center;font-size:14px;z-index:5;text-shadow:0 1px 4px #000}
 button{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 24px);transform:translateX(-50%);z-index:5;background:#fff;color:#000;border:0;border-radius:999px;padding:14px 28px;font-size:16px;font-weight:600}
+#vrb{display:none;left:auto;right:16px;transform:none;padding:10px 14px;font-size:13px;background:rgba(255,255,255,.16);color:#fff;border:1px solid rgba(255,255,255,.45);backdrop-filter:blur(6px)}
+
+/* VR acelerado: a câmera é composta pelo navegador sem upload WebGL por frame. */
+#fastvr{position:fixed;inset:0;display:none;z-index:6;background:#000;overflow:hidden}
+#fastvr .eye{width:50%;height:100%;position:relative;overflow:hidden;flex:0 0 50%;border-radius:38% / 46%;contain:layout paint}
+#fastvr .eye video,#fastvr .eye canvas{position:absolute;width:100%;height:100%;object-fit:cover;inset:0;pointer-events:none}
+#fastvr .eye canvas{opacity:1}
+#fastvr .eye video{transform:scale(1.04)}
+#vrstats{position:fixed;z-index:7;top:8px;left:50%;transform:translateX(-50%);font:11px system-ui;color:#b8f5ff;text-shadow:0 1px 4px black;pointer-events:none}
 </style>
 </head>
 <body>
 <div id="stage">
 <video id="v" playsinline muted></video>
-<canvas id="worldpreview"></canvas>
 <canvas id="cp"></canvas><canvas id="cf"></canvas><canvas id="co"></canvas>
 </div>
-<div id="fastvr" aria-label="Imagem estéreo para VR Box"></div>
-<canvas id="glc"></canvas>
+<canvas id="glc"></canvas><div id="fastvr"></div><div id="vrstats"></div>
 <div id="msg">Toque em Iniciar e permita a câmera</div>
 <button id="go">Iniciar</button>
-<button id="vrb">🥽 Modo VR Box</button>
-<script src="/assets/worlds.js"></script>
-<script src="/assets/vr-ui.js"></script>
+<button id="vrb">VR</button>
 <script>
 const $=id=>document.getElementById(id);
-const vrb=$('vrb'),glc=$('glc'),fastvr=$('fastvr'),stage=$('stage');
-const v=$('v'),cp=$('cp'),cf=$('cf'),co=$('co'),msg=$('msg'),go=$('go'),worldpreview=$('worldpreview');
-const worldCtx=worldpreview.getContext('2d',{alpha:false});
-let lastWorldDraw=0,lastVRWorld=null,browserVisible=false,handsResetRequest='';
-window.onVRBrowserVisibility=visible=>{browserVisible=!!visible;if(visible)tracks=[];};
-const xp=cp.getContext('2d',{alpha:true}),xf=cf.getContext('2d',{alpha:true}),xo=co.getContext('2d',{alpha:true});
-let CW=640,CH=480;let R=.9; // coordenadas de vídeo preservadas, rasterização reduzida
-function resizeOverlay(){
-  cp.width=Math.max(128,Math.round(CW*R));cp.height=Math.max(96,Math.round(CH*R));
-  if(typeof fastVRActive!=='undefined'&&fastVRActive){
-    cf.width=co.width=1;cf.height=co.height=1;
-  }else{
-    for(const canvas of[cf,co]){canvas.width=cp.width;canvas.height=cp.height}
-  }
-}
+const vrb=$('vrb'),glc=$('glc');
+const v=$('v'),cp=$('cp'),cf=$('cf'),co=$('co'),msg=$('msg'),go=$('go'),stage=$('stage');
+const xp=cp.getContext('2d'),xf=cf.getContext('2d'),xo=co.getContext('2d');
+let CW=576,CH=432;const R=.82;
+let HW=innerWidth,HH=innerHeight;addEventListener('resize',()=>{HW=innerWidth;HH=innerHeight});
 
 /* ---------- filtro One Euro ---------- */
 class OE{constructor(mc,beta,dc=1){this.mc=mc;this.b=beta;this.dc=dc;this.x=null;this.dx=0;this.t=0}
@@ -97,38 +78,28 @@ const FINGERS=[[1,2,3,4],[5,6,7,8],[9,10,11,12],[13,14,15,16],[17,18,19,20]];
 const W=[[.23,.20,.17],[.16,.145,.13],[.16,.145,.13],[.15,.135,.12],[.13,.12,.105]];
 
 function newTrack(raw,t){
-  const T={F:raw.map(()=>[new OE(1.2,.15),new OE(1.2,.15),new OE(.7,.04)]),pinch:false,pinchFrames:0,s:0,tm:t,seen:t,born:t,alpha:0};
-  T.f=raw.map(p=>p.slice());T.c=raw.map(p=>p.slice());T.cur=T.c;T.v=raw.map(()=>[0,0,0]);T.P=T.c.slice();T.P[21]=[0,0,0];
+  const T={F:raw.map(()=>[new OE(1.1,.12),new OE(1.1,.12),new OE(.6,.03)]),pinch:false,pinchFrames:0,s:0,tm:t,seen:t,born:t,alpha:0};
+  T.f=raw.map(p=>p.slice());T.c=raw.map(p=>p.slice());T.cur=T.c;T.v=raw.map(()=>[0,0,0]);
   T.qr=handQuat(T.f);T.q=T.qr;return T}
 
 function onLandmarks(L){
-  if(!VRUI.handsEnabled){tracks=[];return}
   const t=performance.now()/1000,used=new Set();
   L.forEach(h=>{
-    if(!h||h.length!==21||h.some(p=>!Number.isFinite(p.x)||!Number.isFinite(p.y)||!Number.isFinite(p.z)))return;
+    if(!h||h.length!==21||h.some(p=>!p||![p.x,p.y,p.z].every(Number.isFinite)))return;
     const raw=h.map(p=>[p.x*CW,p.y*CH,p.z*CW]);
-    let best=null,bd=CW*.28;
+    let best=null,bd=CW*.35;
     for(const T of tracks){if(used.has(T))continue;
-      const age=Math.max(0,Math.min(.06,t-T.tm));
-      const wx=T.f[0][0]+T.v[0][0]*age*.45,wy=T.f[0][1]+T.v[0][1]*age*.45;
-      const wrist=Math.hypot(wx-raw[0][0],wy-raw[0][1]);
-      const palm=Math.hypot(T.f[9][0]-raw[9][0],T.f[9][1]-raw[9][1]);
-      const d=wrist*.7+palm*.3;
+      const d=Math.hypot(T.f[0][0]-raw[0][0],T.f[0][1]-raw[0][1]);
       if(d<bd){bd=d;best=T}}
-    if(!best){
-      if(tracks.length>=2){
-        const stale=tracks.find(T=>!used.has(T)&&t-T.seen>.24);
-        if(!stale)return;
-        tracks.splice(tracks.indexOf(stale),1);
-      }
-      best=newTrack(raw,t);tracks.push(best)
-    }
+    if(!best){if(tracks.length>=2)return;best=newTrack(raw,t);tracks.push(best)}
     used.add(best);
     const dt=Math.max(t-best.tm,1e-3);
+    const lim=Math.max(20,d3(best.f[0],best.f[9])*1.2); // descarta saltos absurdos de um único ponto
     for(let j=0;j<21;j++)for(let a=0;a<3;a++){
-      const nf=best.F[j][a].f(raw[j][a],t);
+      const rv=best.f[j][a]+Math.max(-lim,Math.min(lim,raw[j][a]-best.f[j][a]));
+      const nf=best.F[j][a].f(rv,t);
       const nv=Math.max(-VMAX,Math.min(VMAX,(nf-best.f[j][a])/dt));
-      best.v[j][a]=best.v[j][a]*.55+nv*.45;best.f[j][a]=nf}
+      best.v[j][a]=best.v[j][a]*.4+nv*.6;best.f[j][a]=nf}
     best.tm=t;best.seen=t;best.qr=handQuat(best.f);
   });
 }
@@ -141,209 +112,281 @@ function shape(g,P,s,extra,color){
     g.lineWidth=s*W[fi][k]+extra*2;g.beginPath();g.moveTo(P[f[k]][0],P[f[k]][1]);g.lineTo(P[f[k+1]][0],P[f[k+1]][1]);g.stroke()}});
 }
 
-/* ---------- painel 3D ---------- */
-const panel={x:0,y:0,tx:0,ty:0,w:0,h:0,q:[1,0,0,0],grab:null,init:false,poly:[],projected:[]};
-function buildPoly(){
-  const hw=panel.w/2,hh=panel.h/2,r=Math.min(hw,hh)*.16,pts=[];
-  [[hw-r,hh-r,0],[-hw+r,hh-r,90],[-hw+r,-hh+r,180],[hw-r,-hh+r,270]].forEach(([cx,cy,a0])=>{
-    for(let i=0;i<=6;i++){const a=(a0+i*15)*Math.PI/180;pts.push([cx+Math.cos(a)*r,cy+Math.sin(a)*r,0])}});
-  panel.poly=pts;panel.projected=pts.map(()=>[0,0])}
-function projectInto(M,p,F,out){
-  const x=M[0][0]*p[0]+M[0][1]*p[1]+M[0][2]*p[2],y=M[1][0]*p[0]+M[1][1]*p[1]+M[1][2]*p[2],z=M[2][0]*p[0]+M[2][1]*p[1]+M[2][2]*p[2];
-  const k=F/(F+z);out[0]=panel.x+x*k;out[1]=panel.y+y*k;return out
+let vr=false;
+/* ---------- SISTEMA DE JANELAS (estilo Quest): status, dock, biblioteca, navegador, teclado... ---------- */
+let FOVL=68;try{FOVL=+localStorage.getItem('fov')||68}catch(e){}
+const S={hands:true,shift:false},WINS=[];let zc=0,grab=null,ORD=[],flash=0;
+const bat={l:null,c:false};try{navigator.getBattery&&navigator.getBattery().then(b=>{const u=()=>{bat.l=b.level;bat.c=b.charging};u();b.onlevelchange=b.onchargingchange=u})}catch(e){}
+const gal=[],br={hist:[],i:-1,input:'',url:''};
+const fr=document.createElement('iframe');
+fr.setAttribute('sandbox','allow-scripts allow-same-origin allow-forms allow-popups');fr.referrerPolicy='no-referrer';
+fr.style.cssText='position:absolute;left:0;top:0;border:0;background:#fff;transform-origin:0 0;display:none;border-radius:14px;pointer-events:auto';
+stage.insertBefore(fr,cp);
+
+const CFG={dock:{dw:480,dh:84,fixed:1,dir:[0,.31,1]},status:{dw:280,dh:44,fixed:1,dir:[0,.215,1]},
+  lib:{dw:640,dh:410},web:{dw:640,dh:424},cfg:{dw:480,dh:410},gal:{dw:560,dh:380},kbd:{dw:640,dh:330}};
+const kk=W=>CW/760;
+function camToWorld(vv){const M=qmat(gy.Qd);return[0,1,2].map(i=>M[i][0]*vv[0]+M[i][1]*vv[1]+M[i][2]*vv[2])}
+function mkWin(type,dir){
+  const c=CFG[type],W={type,dw:c.dw,dh:c.dh,fixed:!!c.fixed,wd:nrm(dir),qu:[1,0,0,0],x:0,y:0,front:true,vx:0,vy:0,z:++zc,
+    tex:document.createElement('canvas'),sig:'',wg:[],hv:null,pr:null};
+  W.tex.width=W.dw;W.tex.height=W.dh;W.g=W.tex.getContext('2d');WINS.push(W);return W}
+function openApp(type){
+  const dir=camToWorld(type==='kbd'?[0,.13,1]:[0,-.04,1]);
+  let W=WINS.find(w=>w.type===type);
+  if(!W)W=mkWin(type,dir);else{W.wd=nrm(dir);W.qu=[1,0,0,0];W.sig=''}
+  W.z=++zc;if(type==='kbd'){br.input='';S.shift=false}
 }
-function project(M,p,F){return projectInto(M,p,F,[0,0])}
-function polyPath(g,pts){g.beginPath();pts.forEach((p,i)=>i?g.lineTo(p[0],p[1]):g.moveTo(p[0],p[1]));g.closePath()}
+function closeWin(W){const i=WINS.indexOf(W);if(i>=0)WINS.splice(i,1);if(grab&&grab.W===W)grab=null}
+function initUI(){if(WINS.length)return;mkWin('status',CFG.status.dir);mkWin('dock',CFG.dock.dir)}
+function recenter(){
+  gy.Q=[1,0,0,0];gy.Qd=[1,0,0,0];gy.wf=[0,0,0];grab=null;
+  for(const W of WINS){W.qu=[1,0,0,0];W.wd=nrm(CFG[W.type].dir||[0,-.04,1])}
+}
+function capture(){
+  const c=document.createElement('canvas');c.width=320;c.height=Math.round(320*CH/CW);const g=c.getContext('2d');
+  g.drawImage(v,0,0,c.width,c.height);g.globalAlpha=.1;g.drawImage(cf,0,0,c.width,c.height);g.globalAlpha=.95;g.drawImage(co,0,0,c.width,c.height);
+  gal.unshift(c);if(gal.length>8)gal.pop();flash=performance.now();
+}
+function saveImg(c){c.toBlob(b=>{const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='foto.png';a.click()})}
+function setFov(d){FOVL=Math.max(50,Math.min(95,d));try{localStorage.setItem('fov',FOVL)}catch(e){}gyroGeom()}
 
+// navegador
+function navTo(u){
+  u=(u||'').trim();if(!u)return;
+  if(!/^https?:\/\//i.test(u))u=(/\s/.test(u)||!u.includes('.'))?'https://pt.wikipedia.org/w/index.php?search='+encodeURIComponent(u):'https://'+u;
+  br.hist=br.hist.slice(0,br.i+1);br.hist.push(u);br.i++;br.url=br.input=u;fr.src=u;
+}
+function navGo(d){const i=br.i+d;if(i<0||i>=br.hist.length)return;br.i=i;br.url=br.input=br.hist[i];fr.src=br.url}
+function navReload(){if(!br.url)return;const u=br.url;fr.src='about:blank';setTimeout(()=>{fr.src=u},40)}
+function navHome(){br.url='';br.input='';fr.src='about:blank'}
+function typeKey(k){
+  if(k==='⌫')br.input=br.input.slice(0,-1);
+  else if(k==='⇧')S.shift=!S.shift;
+  else if(k==='Ir'){navTo(br.input);const K=WINS.find(w=>w.type==='kbd');if(K)closeWin(K)}
+  else{br.input+=S.shift?k.toUpperCase():k;S.shift=false}
+}
 
-/* ---------- GIROSCÓPIO VISUAL (sem sensor): rotação da câmera pelo movimento da imagem ---------- */
-const FOVL=70; // campo de visão do lado maior da câmera (graus)
-const gy={yaw:0,pitch:0,roll:0,ok:false,n:0,tot:0,ptx:0,pty:0,sw:0,sh:0,f:1,sc:1,has:false,quality:0,vyaw:0,vpitch:0,vroll:0};
+// desenho das janelas (visual inspirado no Horizon OS do Quest)
+const txt=(g,s,x,y,sz,wt,col,al)=>{g.font=`${wt||500} ${sz}px system-ui,sans-serif`;g.fillStyle=col||'#fff';g.textAlign=al||'left';g.textBaseline='middle';g.fillText(s,x,y)};
+function rrp(g,x,y,w,h,r){r=Math.min(r,w/2,h/2);g.beginPath();g.moveTo(x+r,y);g.arcTo(x+w,y,x+w,y+h,r);g.arcTo(x+w,y+h,x,y+h,r);g.arcTo(x,y+h,x,y,r);g.arcTo(x,y,x+w,y,r);g.closePath()}
+function bg(g,w,h,r){rrp(g,1,1,w-2,h-2,r);g.fillStyle='rgba(16,18,22,.90)';g.fill();g.strokeStyle='rgba(255,255,255,.13)';g.lineWidth=2;g.stroke()}
+function icon(g,n,x,y,r){
+  g.save();g.translate(x,y);g.strokeStyle=g.fillStyle='#fff';g.lineWidth=r*.12;g.lineCap=g.lineJoin='round';
+  if(n==='lib'){for(let i=0;i<9;i++){g.beginPath();g.arc((i%3-1)*r*.42,((i/3|0)-1)*r*.42,r*.09,0,7);g.fill()}}
+  else if(n==='web'){g.beginPath();g.arc(0,0,r*.5,0,7);g.stroke();g.beginPath();g.ellipse(0,0,r*.2,r*.5,0,0,7);g.stroke();g.beginPath();g.moveTo(-r*.5,0);g.lineTo(r*.5,0);g.stroke()}
+  else if(n==='cam'){rrp(g,-r*.5,-r*.3,r,r*.62,r*.1);g.stroke();g.beginPath();g.arc(0,r*.01,r*.17,0,7);g.stroke();g.beginPath();g.moveTo(-r*.2,-r*.3);g.lineTo(-r*.12,-r*.42);g.lineTo(r*.12,-r*.42);g.lineTo(r*.2,-r*.3);g.stroke()}
+  else if(n==='gal'){rrp(g,-r*.5,-r*.4,r,r*.8,r*.1);g.stroke();g.beginPath();g.moveTo(-r*.5,r*.28);g.lineTo(-r*.15,-r*.05);g.lineTo(r*.1,r*.18);g.lineTo(r*.25,r*.02);g.lineTo(r*.5,r*.3);g.stroke();g.beginPath();g.arc(r*.2,-r*.18,r*.07,0,7);g.fill()}
+  else if(n==='cfg'){g.beginPath();g.arc(0,0,r*.26,0,7);g.stroke();for(let i=0;i<8;i++){const a=i*Math.PI/4;g.beginPath();g.moveTo(Math.cos(a)*r*.38,Math.sin(a)*r*.38);g.lineTo(Math.cos(a)*r*.52,Math.sin(a)*r*.52);g.stroke()}}
+  else if(n==='vr'){rrp(g,-r*.56,-r*.25,r*1.12,r*.5,r*.18);g.stroke();for(const s of[-1,1]){g.beginPath();g.arc(s*r*.22,0,r*.12,0,7);g.stroke()}}
+  else if(n==='ctr'){g.beginPath();g.arc(0,0,r*.42,0,7);g.stroke();g.beginPath();g.arc(0,0,r*.08,0,7);g.fill()}
+  else if(n==='wifi'){for(let i=1;i<=3;i++){g.beginPath();g.arc(0,r*.4,r*.28*i,-Math.PI*.8,-Math.PI*.2);g.stroke()}}
+  else if(n==='bell'){g.beginPath();g.moveTo(-r*.4,r*.28);g.quadraticCurveTo(-r*.4,-r*.5,0,-r*.5);g.quadraticCurveTo(r*.4,-r*.5,r*.4,r*.28);g.closePath();g.stroke();g.beginPath();g.arc(0,r*.42,r*.1,0,7);g.fill()}
+  g.restore()}
+
+function paint(W){
+  const g=W.g,dw=W.dw,dh=W.dh,hv=W.hv,pr=W.pr;g.clearRect(0,0,dw,dh);W.wg=[];
+  const wgt=(id,x,y,w,h,act,r)=>{W.wg.push({id,x,y,w,h,act});const a=pr===id?.30:hv===id?.17:0;if(a){g.fillStyle=`rgba(255,255,255,${a})`;rrp(g,x,y,w,h,r||18);g.fill()}};
+  const closeBtn=()=>{wgt('x',dw-54,14,40,40,()=>closeWin(W),20);g.strokeStyle='#fff';g.lineWidth=3;g.lineCap='round';g.beginPath();g.moveTo(dw-42,26);g.lineTo(dw-26,42);g.moveTo(dw-26,26);g.lineTo(dw-42,42);g.stroke()};
+  const bar=()=>{g.fillStyle='rgba(255,255,255,.35)';rrp(g,dw/2-40,dh-16,80,6,3);g.fill()};
+  const t=W.type;
+  if(t==='dock'){
+    bg(g,dw,dh,dh/2);
+    [['lib',()=>openApp('lib')],['web',()=>openApp('web')],['gal',()=>openApp('gal')],['cam',capture],['cfg',()=>openApp('cfg')]].forEach(([n,a],i)=>{
+      const cx=52+i*94,cy=dh/2;wgt(n,cx-34,cy-34,68,68,a,34);icon(g,n,cx,cy,28)});
+  }else if(t==='status'){
+    bg(g,dw,dh,dh/2);
+    g.fillStyle='#8a93a6';g.beginPath();g.arc(26,22,15,0,7);g.fill();g.fillStyle='#d5dae6';g.beginPath();g.arc(26,17,5.5,0,7);g.fill();g.beginPath();g.arc(26,32,9,Math.PI,0);g.fill();
+    const d=new Date();txt(g,String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'),52,23,18,600);
+    icon(g,'wifi',118,20,16);if(!navigator.onLine){g.strokeStyle='#ff6b6b';g.lineWidth=3;g.beginPath();g.moveTo(106,32);g.lineTo(130,10);g.stroke()}
+    g.strokeStyle='#fff';g.lineWidth=2;rrp(g,146,13,30,16,4);g.stroke();g.fillRect(177,18,3,6);
+    if(bat.l!=null){g.fillStyle=bat.c?'#5cd68a':(bat.l<.2?'#ff6b6b':'#fff');g.fillRect(148,15,26*bat.l,12)}
+    wgt('bell',196,6,32,32,()=>{},16);icon(g,'bell',212,22,16);
+    wgt('cfg',236,6,34,32,()=>openApp('cfg'),16);icon(g,'cfg',253,22,15);
+  }else if(t==='lib'){
+    bg(g,dw,dh,30);txt(g,'Biblioteca',32,38,26,600);closeBtn();bar();
+    [['web','Navegador','#2f6fed',()=>openApp('web')],['cam','Câmera','#7a54e8',capture],['gal','Galeria','#e0663c',()=>openApp('gal')],
+     ['cfg','Configurações','#4b5563',()=>openApp('cfg')],['vr','Modo VR','#17a589',()=>setVR(true)],['ctr','Recentrar','#b8860b',recenter]].forEach(([n,l,c,a],i)=>{
+      const x=40+(i%3)*192,y=84+(i/3|0)*(128+14);
+      g.fillStyle=c;g.globalAlpha=.85;rrp(g,x,y,176,128,22);g.fill();g.globalAlpha=1;
+      wgt('t'+n,x,y,176,128,a,22);icon(g,n,x+88,y+52,40);txt(g,l,x+88,y+104,19,500,'#fff','center')});
+  }else if(t==='web'){
+    bg(g,dw,dh,30);closeBtn();bar();
+    [['‹',18,()=>navGo(-1)],['›',68,()=>navGo(1)],['↻',118,navReload],['⌂',168,navHome]].forEach(([s,x,a])=>{wgt('b'+s,x,18,44,44,a,22);txt(g,s,x+22,40,28,500,'#fff','center')});
+    wgt('url',222,18,dw-222-62,44,()=>openApp('kbd'),22);
+    g.fillStyle='rgba(255,255,255,.10)';rrp(g,222,18,dw-222-62,44,22);g.fill();
+    g.font='500 19px system-ui,sans-serif';let u=br.input||'Buscar ou digitar endereço';const col=br.input?'#fff':'rgba(255,255,255,.5)';
+    while(u.length>1&&g.measureText(u).width>dw-222-62-36)u=u.slice(1);txt(g,u,240,41,19,500,col);
+    if(br.url&&!vr){g.save();g.globalCompositeOperation='destination-out';rrp(g,20,78,600,296,14);g.fill();g.restore()}
+    else if(vr){g.fillStyle='rgba(255,255,255,.06)';rrp(g,20,78,600,296,14);g.fill();txt(g,'O navegador só funciona fora do modo VR',320,226,20,500,'rgba(255,255,255,.7)','center')}
+    else{
+      [['Wikipédia','https://pt.m.wikipedia.org','#3b5bdb'],['OpenStreetMap','https://www.openstreetmap.org','#2b8a3e'],['Exemplo','https://example.com','#862e9c'],['Internet Archive','https://archive.org','#c2255c']].forEach(([l,u,c],i)=>{
+        const x=20+(i%2)*306,y=84+(i/2|0)*128;g.fillStyle=c;g.globalAlpha=.8;rrp(g,x,y,294,116,22);g.fill();g.globalAlpha=1;
+        wgt('s'+i,x,y,294,116,()=>navTo(u),22);icon(g,'web',x+56,y+58,36);txt(g,l,x+104,y+58,22,600)});
+      txt(g,'Sites que bloqueiam exibição dentro de outros sites não abrem aqui.',320,352,15,400,'rgba(255,255,255,.5)','center');
+    }
+  }else if(t==='cfg'){
+    bg(g,dw,dh,30);txt(g,'Configurações',28,38,26,600);closeBtn();bar();
+    const row=(i,l)=>{const y=84+i*62;txt(g,l,28,y+22,19,500);return y};
+    const btn=(id,y,label,a)=>{const x=dw-28-130;wgt(id,x,y,130,44,a,22);g.fillStyle='rgba(255,255,255,.12)';rrp(g,x,y,130,44,22);g.fill();txt(g,label,x+65,y+23,17,600,'#fff','center')};
+    let y=row(0,'Modo VR (VR Box)');btn('vr',y,'Ativar',()=>setVR(true));
+    y=row(1,'Contorno das mãos');{const x=dw-28-76;wgt('hands',x,y+3,76,38,()=>{S.hands=!S.hands},19);g.fillStyle=S.hands?'#3d8bfd':'rgba(255,255,255,.2)';rrp(g,x,y+3,76,38,19);g.fill();g.fillStyle='#fff';g.beginPath();g.arc(S.hands?x+57:x+19,y+22,15,0,7);g.fill()}
+    y=row(2,'Campo de visão (giro)');{const px=dw-28-44;wgt('f+',px,y,44,44,()=>setFov(FOVL+2),22);wgt('f-',px-130,y,44,44,()=>setFov(FOVL-2),22);
+      g.fillStyle='rgba(255,255,255,.12)';rrp(g,px,y,44,44,22);g.fill();rrp(g,px-130,y,44,44,22);g.fill();
+      txt(g,'+',px+22,y+22,26,500,'#fff','center');txt(g,'−',px-108,y+22,26,500,'#fff','center');txt(g,FOVL+'°',px-43,y+22,19,600,'#fff','center')}
+    y=row(3,'Recentrar vista');btn('ctr',y,'Recentrar',recenter);
+    y=row(4,'Sensor de direção');txt(g,gy.ok?'ativo':'buscando…',dw-28,y+22,19,500,gy.ok?'#5cd68a':'#ffb84d','right');
+  }else if(t==='gal'){
+    bg(g,dw,dh,30);txt(g,'Galeria',32,38,26,600);closeBtn();bar();
+    if(!gal.length)txt(g,'Nenhuma foto. Toque na câmera da dock.',dw/2,dh/2,20,400,'rgba(255,255,255,.6)','center');
+    gal.forEach((c,i)=>{const x=28+(i%4)*132,y=84+(i/4|0)*104;g.save();rrp(g,x,y,120,90,12);g.clip();g.drawImage(c,x,y,120,90);g.restore();wgt('g'+i,x,y,120,90,()=>saveImg(c),12)});
+  }else if(t==='kbd'){
+    bg(g,dw,dh,30);closeBtn();
+    const rows=[...'1234567890'],r2=[...'qwertyuiop'],r3=[...'asdfghjkl'],r4=['⇧',...'zxcvbnm','⌫'];
+    const key=(k,x,y,w,label)=>{wgt('k'+k,x,y,w,52,()=>typeKey(k),12);g.fillStyle=(k==='⇧'&&S.shift)?'rgba(61,139,253,.7)':'rgba(255,255,255,.10)';rrp(g,x,y,w,52,12);g.fill();txt(g,label||(S.shift?k.toUpperCase():k),x+w/2,y+27,22,500,'#fff','center')};
+    [[rows,18],[r2,78],[r3,138]].forEach(([r,y],ri)=>{const w=52,tot=r.length*w+(r.length-1)*6,x0=(dw-tot)/2;r.forEach((k,i)=>key(k,x0+i*(w+6),y,w))});
+    {const y=198,w=52,tot=9*w+8*6+20,x0=(dw-tot)/2;r4.forEach((k,i)=>key(k,x0+i*(w+6)+(i===8?20:0),y,i===8?w+0:w))}
+    {const y=258;key('.com',40,y,110,'.com');key(' ',160,y,300,'espaço');key('/',470,y,60,'/');key('Ir',540,y,64,'Ir')}
+    g.fillStyle='rgba(255,255,255,.55)';
+  }
+}
+function sigOf(W){
+  const b=W.hv+'|'+W.pr,t=W.type;
+  if(t==='status'){const d=new Date();return b+d.getMinutes()+navigator.onLine+bat.l+bat.c}
+  if(t==='web')return b+br.url+br.input+br.i+vr;
+  if(t==='cfg')return b+FOVL+S.hands+gy.ok;
+  if(t==='gal')return b+gal.length;
+  if(t==='kbd')return b+S.shift+br.input;
+  return b;
+}
+function hitAt(px,py){
+  for(let n=ORD.length-1;n>=0;n--){const W=ORD[n];if(!W.front)continue;const k=kk(W),lx=(px-W.x)/k+W.dw/2,ly=(py-W.y)/k+W.dh/2;
+    if(lx<-24||ly<-24||lx>W.dw+24||ly>W.dh+24)continue;
+    for(let i=W.wg.length-1;i>=0;i--){const q=W.wg[i];if(lx>q.x-6&&lx<q.x+q.w+6&&ly>q.y-6&&ly<q.y+q.h+6)return{W,wg:q}}
+    return{W,wg:null}}
+  return null}
+function tri(g,tex,s0,s1,s2,d0,d1,d2){
+  g.save();g.beginPath();g.moveTo(d0[0],d0[1]);g.lineTo(d1[0],d1[1]);g.lineTo(d2[0],d2[1]);g.closePath();g.clip();
+  const den=s0[0]*(s1[1]-s2[1])+s1[0]*(s2[1]-s0[1])+s2[0]*(s0[1]-s1[1]);
+  const a=(d0[0]*(s1[1]-s2[1])+d1[0]*(s2[1]-s0[1])+d2[0]*(s0[1]-s1[1]))/den;
+  const b=(d0[1]*(s1[1]-s2[1])+d1[1]*(s2[1]-s0[1])+d2[1]*(s0[1]-s1[1]))/den;
+  const c=(d0[0]*(s2[0]-s1[0])+d1[0]*(s0[0]-s2[0])+d2[0]*(s1[0]-s0[0]))/den;
+  const d=(d0[1]*(s2[0]-s1[0])+d1[1]*(s0[0]-s2[0])+d2[1]*(s1[0]-s0[0]))/den;
+  const e=(d0[0]*(s1[0]*s2[1]-s2[0]*s1[1])+d1[0]*(s2[0]*s0[1]-s0[0]*s2[1])+d2[0]*(s0[0]*s1[1]-s1[0]*s0[1]))/den;
+  const f=(d0[1]*(s1[0]*s2[1]-s2[0]*s1[1])+d1[1]*(s2[0]*s0[1]-s0[0]*s2[1])+d2[1]*(s0[0]*s1[1]-s1[0]*s0[1]))/den;
+  g.transform(a,b,c,d,e,f);g.drawImage(tex,0,0);g.restore()}
+function drawWin(W){
+  const g=xp,k=kk(W),tilt=Math.hypot(W.qu[1],W.qu[2]);
+  if(tilt<.05){ // janela de frente: um único desenho (rápido)
+    g.save();g.translate(W.x,W.y);g.rotate(2*Math.atan2(W.qu[3],W.qu[0]));g.scale(k,k);g.drawImage(W.tex,-W.dw/2,-W.dh/2);g.restore();return}
+  const M=qmat(W.qu),F=CW*1.3,GX=6,GY=4,P=[];
+  for(let j=0;j<=GY;j++)for(let i=0;i<=GX;i++){
+    const u=(i/GX-.5)*W.dw*k,w=(j/GY-.5)*W.dh*k,X=M[0][0]*u+M[0][1]*w,Y=M[1][0]*u+M[1][1]*w,Z=M[2][0]*u+M[2][1]*w,s=F/(F+Z);
+    P.push([W.x+X*s,W.y+Y*s,i/GX*W.dw,j/GY*W.dh])}
+  for(let j=0;j<GY;j++)for(let i=0;i<GX;i++){
+    const a=P[j*(GX+1)+i],b=P[j*(GX+1)+i+1],c=P[(j+1)*(GX+1)+i],d=P[(j+1)*(GX+1)+i+1];
+    tri(g,W.tex,[a[2],a[3]],[b[2],b[3]],[c[2],c[3]],a,b,c);tri(g,W.tex,[b[2],b[3]],[d[2],d[3]],[c[2],c[3]],b,d,c)}
+}
+function toScreen(x,y){const s=Math.max(HW/CW,HH/CH);return[(HW-CW*s)/2+x*s,(HH-CH*s)/2+y*s]}
+function fromScreen(x,y){const s=Math.max(HW/CW,HH/CH);return[(x-(HW-CW*s)/2)/s,(y-(HH-CH*s)/2)/s]}
+function updateFrame(){
+  const W=WINS.find(w=>w.type==='web'),show=W&&br.url&&!vr&&W.front&&Math.hypot(W.qu[1],W.qu[2])<.05;
+  if(!show){if(fr.style.display!=='none')fr.style.display='none';return}
+  const k=kk(W),sc=Math.max(HW/CW,HH/CH),[sx,sy]=toScreen(W.x,W.y),roll=2*Math.atan2(W.qu[3],W.qu[0]);
+  const tr=`translate(${sx}px,${sy}px) rotate(${roll}rad) scale(${k*sc}) translate(${20-W.dw/2}px,${78-W.dh/2}px)`;
+  if(fr._t!==tr){fr._t=tr;fr.style.transform=tr}
+  if(fr.style.display==='none'){fr.style.width='600px';fr.style.height='296px';fr.style.display='block'}
+}
+
+/* ---------- GIROSCÓPIO VISUAL v2: rotação 3D da câmera (fluxo óptico + modelo de rotação) ---------- */
+const gy={Q:[1,0,0,0],Qd:[1,0,0,0],ok:false,n:0,om:[0,0,0],wf:[0,0,0],sw:0,sh:0,f:1,fc:1,sc:1,has:false,miss:0};
 let sg2=null,started=false;
 function gyroInit(){
-  const k=96/Math.max(CW,CH);gy.sw=Math.round(CW*k);gy.sh=Math.round(CH*k);
+  const k=104/Math.max(CW,CH);gy.sw=Math.round(CW*k);gy.sh=Math.round(CH*k);
   const c=document.createElement('canvas');c.width=gy.sw;c.height=gy.sh;
   sg2=c.getContext('2d',{willReadFrequently:true});
-  gy.f=(Math.max(gy.sw,gy.sh)/2)/Math.tan(FOVL*Math.PI/360);gy.sc=CW/gy.sw;
-  gy.prev=new Uint8Array(gy.sw*gy.sh);gy.cur=new Uint8Array(gy.sw*gy.sh);
-  gy.hw=gy.sw>>1;gy.hh=gy.sh>>1;
-  gy.smallPrev=new Uint8Array(gy.hw*gy.hh);
-  gy.smallCur=new Uint8Array(gy.hw*gy.hh);
-  gy.has=false;gy.ptx=gy.pty=0;gy.ok=false;gy.vyaw=gy.vpitch=gy.vroll=0;
+  gyroGeom();
+  gy.prev=new Uint8Array(gy.sw*gy.sh);gy.cur=new Uint8Array(gy.sw*gy.sh);gy.has=false;gy.miss=0;
 }
-function fitSim(P){
-  let use=P,out=null;
+function gyroGeom(){gy.f=(Math.max(gy.sw,gy.sh)/2)/Math.tan(FOVL*Math.PI/360);gy.sc=CW/gy.sw;gy.fc=gy.f*gy.sc}
+function solve3(A,b){
+  const[a,c1,c2,d,e,f,g,h,i]=A,det=a*(e*i-f*h)-c1*(d*i-f*g)+c2*(d*h-e*g);
+  if(Math.abs(det)<1e-12)return null;
+  return[(b[0]*(e*i-f*h)-c1*(b[1]*i-f*b[2])+c2*(b[1]*h-e*b[2]))/det,
+         (a*(b[1]*i-f*b[2])-b[0]*(d*i-f*g)+c2*(d*b[2]-b[1]*g))/det,
+         (a*(e*b[2]-b[1]*h)-c1*(d*b[2]-b[1]*g)+b[0]*(d*h-e*g))/det];
+}
+// campo de movimento de uma rotação pura: u=wx·xy-wy(1+x²)+wz·y ; v=wx(1+y²)-wy·xy-wz·x
+function lsRot(P,use){
+  const A=[1e-6,0,0,0,1e-6,0,0,0,1e-6],b=[0,0,0];
+  for(let k=0;k<P.length;k++){if(!use[k])continue;const[x,y,u,v]=P[k],r1=[x*y,-(1+x*x),y],r2=[1+y*y,-x*y,-x];
+    for(let i=0;i<3;i++){b[i]+=r1[i]*u+r2[i]*v;for(let j=0;j<3;j++)A[i*3+j]+=r1[i]*r1[j]+r2[i]*r2[j]}}
+  return solve3(A,b);
+}
+function fitRot(P,f){
+  if(P.length<8)return null;
+  let use=P.map(()=>1),w=lsRot(P,use),n=0;if(!w)return null;
   for(let pass=0;pass<2;pass++){
-    const n=use.length;if(n<6)return null;
-    let mx=0,my=0,mfx=0,mfy=0;for(const q of use){mx+=q[0];my+=q[1];mfx+=q[2];mfy+=q[3]}
-    mx/=n;my/=n;mfx/=n;mfy/=n;let n1=0,n2=0,dn=0;
-    for(const q of use){const x=q[0]-mx,y=q[1]-my,fx=q[2]-mfx,fy=q[3]-mfy;n1+=x*fx+y*fy;n2+=x*fy-y*fx;dn+=x*x+y*y}
-    if(dn<1)return null;
-    const a=n1/dn,b=n2/dn,tx=mfx-a*mx+b*my,ty=mfy-b*mx-a*my;
-    out={a,b,tx,ty,n};
-    if(pass===0){
-      const res=P.map(q=>Math.hypot(q[2]-(a*q[0]-b*q[1]+tx),q[3]-(b*q[0]+a*q[1]+ty)));
-      const med=[...res].sort((p,q)=>p-q)[res.length>>1],thr=Math.max(1,med*2.5);
-      use=P.filter((_,i)=>res[i]<thr);
-    }
+    const res=P.map(([x,y,u,v])=>Math.hypot(u-(w[0]*x*y-w[1]*(1+x*x)+w[2]*y),v-(w[0]*(1+y*y)-w[1]*x*y-w[2]*x))*f);
+    const med=[...res].sort((p,q)=>p-q)[res.length>>1],thr=Math.max(.5,med*2.5);
+    use=res.map(r=>r<thr?1:0);n=use.reduce((p,q)=>p+q,0);if(n<8)return null;
+    w=lsRot(P,use);if(!w)return null;
   }
-  return out;
+  return{w,n};
 }
-function ssd(prev,cur,sw,x,y,cx,cy){let t=0;for(let dy=-4;dy<=4;dy++){const a=(y+dy)*sw+x,b=(cy+dy)*sw+cx;for(let dx=-4;dx<=4;dx++){const d=prev[a+dx]-cur[b+dx];t+=d*d}}return t}
-// casamento de blocos (SAD) em pontos de uma grade; ignora pontos sobre as mãos
-// Primeiro busca o deslocamento global em meia resolução para reduzir CPU.
-function coarseMotion(prev,cur,sw,sh,boxes){
-  const hw=sw>>1,hh=sh>>1,sites=[];
-  for(let y=11;y<hh-11;y+=4)for(let x=11;x<hw-11;x+=4){
-    if(boxes.some(b=>x*2>b[0]&&x*2<b[2]&&y*2>b[1]&&y*2<b[3]))continue;
-    const i=y*hw+x;
-    if(Math.abs(prev[i-2]-prev[i+2])+Math.abs(prev[i-hw*2]-prev[i+hw*2])>=16)sites.push([x,y]);
-  }
-  if(sites.length<9)return null;
-  let best=Infinity,bx=0,by=0;
-  const samples=sites.length>48?sites.filter((_,i)=>i%Math.ceil(sites.length/48)===0):sites;
-  for(let dy=-9;dy<=9;dy++)for(let dx=-9;dx<=9;dx++){
-    let score=0;
-    for(const [x,y] of samples){
-      for(let oy=-1;oy<=1;oy++){
-        const a=(y+oy)*hw+x,b=(y+oy+dy)*hw+x+dx;
-        for(let ox=-1;ox<=1;ox++){const d=prev[a+ox]-cur[b+ox];score+=d<0?-d:d}
-      }
-      if(score>=best)break;
-    }
-    if(score<best){best=score;bx=dx;by=dy}
-  }
-  const mean=best/(samples.length*9);
-  if(mean>25||Math.abs(bx)>=9||Math.abs(by)>=9)return null;
-  return {x:bx*2,y:by*2,quality:Math.max(0,1-mean/25)};
-}
-// Em cenas ambíguas, revalida em escala integral com poucos pixels espalhados.
-// Evita confundir texturas repetidas com giros reais, preservando movimentos rápidos.
-function wideMotion(prev,cur,sw,sh,boxes){
-  const sites=[];
-  for(let y=14;y<sh-14;y+=7)for(let x=20;x<sw-20;x+=7){
-    if(boxes.some(b=>x>b[0]&&x<b[2]&&y>b[1]&&y<b[3]))continue;
-    const i=y*sw+x;
-    if(Math.abs(prev[i-2]-prev[i+2])+Math.abs(prev[i-sw*2]-prev[i+sw*2])>22)sites.push(i);
-  }
-  if(sites.length<12)return null;
-  const samples=sites.length>32?sites.filter((_,i)=>i%Math.ceil(sites.length/32)===0):sites;
-  let best=Infinity,bx=0,by=0;
-  for(let dy=-12;dy<=12;dy++)for(let dx=-18;dx<=18;dx++){
-    const shift=dy*sw+dx;let score=0;
-    for(const i of samples){
-      let d=prev[i]-cur[i+shift];score+=d<0?-d:d;
-      d=prev[i-2]-cur[i+shift-2];score+=d<0?-d:d;
-      d=prev[i+2]-cur[i+shift+2];score+=d<0?-d:d;
-      d=prev[i-sw*2]-cur[i+shift-sw*2];score+=d<0?-d:d;
-      d=prev[i+sw*2]-cur[i+shift+sw*2];score+=d<0?-d:d;
-      if(score>=best)break;
-    }
-    if(score<best){best=score;bx=dx;by=dy}
-  }
-  if(best/(samples.length*5)>19||Math.abs(bx)>=18||Math.abs(by)>=12)return null;
-  return {x:bx,y:by,quality:Math.max(0,1-best/(samples.length*5*19))};
-}
-function downsampleGray(full,half,w,h){
-  const hw=w>>1;
-  for(let y=0;y<h;y+=2)for(let x=0;x<w;x+=2){
-    const i=y*w+x;
-    half[(y>>1)*hw+(x>>1)]=(full[i]+full[i+1]+full[i+w]+full[i+w+1]+2)>>2;
-  }
-}
-// Refinamento local com janela 7x7, previsão de movimento e rejeição de regiões
-// sem textura. Ignora caixas das mãos para não confundir gestos com direção.
-function estimateMotion(prev,cur,sw,sh,boxes,px,py,predicted){
-  const H=3,SR=predicted?3:5,step=10,margin=H+SR+2,pts=[];
-  const minX=margin+Math.max(0,-px),maxX=sw-margin-Math.max(0,px);
-  const minY=margin+Math.max(0,-py),maxY=sh-margin-Math.max(0,py);
-  for(let y=minY;y<maxY;y+=step)for(let x=minX;x<maxX;x+=step){
-    let hidden=false;
-    for(const b of boxes)if(x>b[0]&&x<b[2]&&y>b[1]&&y<b[3]){hidden=true;break}
-    if(hidden)continue;
-    let sum=0,dev=0;
-    for(let dy=-H;dy<=H;dy++)for(let dx=-H;dx<=H;dx++)sum+=prev[(y+dy)*sw+x+dx];
-    const mean=sum/49;
+function ssd(prev,cur,sw,x,y,cx,cy){let t=0;for(let dy=-3;dy<=3;dy++){const a=(y+dy)*sw+x,b=(cy+dy)*sw+cx;for(let dx=-3;dx<=3;dx++){const d=prev[a+dx]-cur[b+dx];t+=d*d}}return t}
+// casamento de blocos em grade, centrado no movimento previsto de cada ponto; ignora pontos sobre as mãos
+function estimateMotion(prev,cur,sw,sh,boxes,om,f,SR){
+  const H=3,step=14,mg=H+SR+11,pts=[];
+  for(let y=mg;y<sh-mg;y+=step)for(let x=mg;x<sw-mg;x+=step){
+    let hid=false;for(const b of boxes)if(x>b[0]&&x<b[2]&&y>b[1]&&y<b[3]){hid=true;break}
+    if(hid)continue;
+    let sum=0;for(let dy=-H;dy<=H;dy++)for(let dx=-H;dx<=H;dx++)sum+=prev[(y+dy)*sw+x+dx];
+    const mean=sum/49;let dev=0;
     for(let dy=-H;dy<=H;dy++)for(let dx=-H;dx<=H;dx++)dev+=Math.abs(prev[(y+dy)*sw+x+dx]-mean);
     if(dev/49<5)continue;
-    let best=Infinity,bx=0,by=0;
+    const xn=(x-sw/2)/f,yn=(y-sh/2)/f;
+    const px=Math.max(-10,Math.min(10,Math.round(f*(om[0]*xn*yn-om[1]*(1+xn*xn)+om[2]*yn))));
+    const py=Math.max(-10,Math.min(10,Math.round(f*(om[0]*(1+yn*yn)-om[1]*xn*yn-om[2]*xn))));
+    let best=1e9,bx=0,by=0;
     for(let oy=-SR;oy<=SR;oy++)for(let ox=-SR;ox<=SR;ox++){
-      const cx=x+px+ox,cy=y+py+oy;
-      let sad=0;
-      for(let dy=-H;dy<=H;dy++){
-        const a=(y+dy)*sw+x,b=(cy+dy)*sw+cx;
+      const cx=x+px+ox,cy=y+py+oy;let sad=0;
+      for(let dy=-H;dy<=H;dy++){const a=(y+dy)*sw+x,b=(cy+dy)*sw+cx;
         for(let dx=-H;dx<=H;dx++){const d=prev[a+dx]-cur[b+dx];sad+=d<0?-d:d}
-        if(sad>=best)break;
-      }
-      if(sad<best){best=sad;bx=ox;by=oy}
-    }
-    if(best/49>18)continue;
-    pts.push([x-sw/2,y-sh/2,px+bx,py+by]);
+        if(sad>=best)break}
+      if(sad<best){best=sad;bx=ox;by=oy}}
+    if(best/49>16)continue;
+    let fx=px+bx,fy=py+by;
+    const X0=x+px+bx,Y0=y+py+by,c0=ssd(prev,cur,sw,x,y,X0,Y0);
+    if(bx>-SR&&bx<SR){const l=ssd(prev,cur,sw,x,y,X0-1,Y0),r=ssd(prev,cur,sw,x,y,X0+1,Y0),dn=l-2*c0+r;if(dn>0)fx+=.5*(l-r)/dn}
+    if(by>-SR&&by<SR){const u=ssd(prev,cur,sw,x,y,X0,Y0-1),d=ssd(prev,cur,sw,x,y,X0,Y0+1),dn=u-2*c0+d;if(dn>0)fy+=.5*(u-d)/dn}
+    pts.push([xn,yn,fx/f,fy/f]);
   }
-  return {pts,m:fitSim(pts)};
+  return{pts,m:fitRot(pts,f)};
 }
 function gyroStep(vid){
   const{sw,sh}=gy;sg2.drawImage(vid,0,0,sw,sh);
   const d=sg2.getImageData(0,0,sw,sh).data,cur=gy.cur;
   for(let i=0,j=0;i<cur.length;i++,j+=4)cur[i]=(d[j]*77+d[j+1]*150+d[j+2]*29)>>8;
-  downsampleGray(cur,gy.smallCur,sw,sh);
-  if(!gy.has){gy.prev.set(cur);gy.smallPrev.set(gy.smallCur);gy.has=true;return null}
+  if(!gy.has){const t=gy.prev;gy.prev=cur;gy.cur=t;gy.has=true;return}
   const boxes=tracks.map(T=>{let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
     for(const p of T.c){if(p[0]<x0)x0=p[0];if(p[0]>x1)x1=p[0];if(p[1]<y0)y0=p[1];if(p[1]>y1)y1=p[1]}
     const m=T.s*.5;return[(x0-m)/gy.sc,(y0-m)/gy.sc,(x1+m)/gy.sc,(y1+m)/gy.sc]});
-  const coarse=coarseMotion(gy.smallPrev,gy.smallCur,sw,sh,boxes);
-  const wide=(!coarse||coarse.quality<.77)?wideMotion(gy.prev,cur,sw,sh,boxes):null;
-  const prediction=wide||coarse;
-  const px=prediction?Math.round(prediction.x):Math.max(-7,Math.min(7,Math.round(gy.ptx)));
-  const py=prediction?Math.round(prediction.y):Math.max(-7,Math.min(7,Math.round(gy.pty)));
-  const {pts,m}=estimateMotion(gy.prev,cur,sw,sh,boxes,px,py,!!prediction);
-  gy.prev.set(cur);gy.smallPrev.set(gy.smallCur);gy.tot=pts.length;
-  if(!m||m.n<6||m.n/pts.length<.56||!Number.isFinite(m.tx)||!Number.isFinite(m.ty)){
-    gy.ok=false;gy.n=0;gy.ptx*=.5;gy.pty*=.5;gy.quality=0;gy.vyaw=gy.vpitch=gy.vroll=0;return null
-  }
-  gy.ok=true;gy.n=m.n;gy.ptx=m.tx;gy.pty=m.ty;gy.quality=m.n/pts.length;
-  let th=Math.atan2(m.b,1+m.a),tx=m.tx,ty=m.ty;
-  // Reject subpixel flicker while retaining genuine slow head turns.
-  if(Math.abs(tx)<.07)tx=0;if(Math.abs(ty)<.075)ty=0;if(Math.abs(th)<.0006)th=0;
-  const D=180/Math.PI;
-  const confidence=Math.min(1,Math.max(.72,gy.quality*1.18));
-  const yawStep=-Math.atan2(tx,gy.f)*D*confidence;
-  const pitchStep=Math.atan2(ty,gy.f)*D*confidence;
-  const rollStep=-th*D;
-  // Low-latency smoothing: no residual angular drift when the camera is still.
-  gy.vyaw=tx===0?0:gy.vyaw*.18+yawStep*.82;
-  gy.vpitch=ty===0?0:gy.vpitch*.22+pitchStep*.78;
-  gy.vroll=th===0?0:gy.vroll*.25+rollStep*.75;
-  gy.yaw=(gy.yaw+gy.vyaw+360)%360;
-  gy.pitch=Math.max(-90,Math.min(90,gy.pitch+gy.vpitch));
-  gy.roll=((gy.roll+gy.vroll+540)%360)-180;
-  return{tx:tx*gy.sc,ty:ty*gy.sc,th};
+  const{pts,m}=estimateMotion(gy.prev,cur,sw,sh,boxes,gy.om,gy.f,gy.miss>1?7:4);
+  {const t=gy.prev;gy.prev=cur;gy.cur=t}
+  if(!m||m.n/pts.length<.5){gy.ok=false;gy.miss++;gy.om=gy.om.map(x=>x*.5);return}
+  gy.ok=true;gy.miss=0;gy.n=m.n;gy.om=m.w;
+  const w=m.w.map(x=>Math.abs(x)<2.5e-4?0:x); // zona morta: evita deriva por ruído
+  gy.wf=gy.wf.map((p,i)=>w[i]===0?0:p*.20+w[i]*.80);
+  const a=Math.hypot(gy.wf[0],gy.wf[1],gy.wf[2]);
+  if(a>1e-7){const k=Math.sin(a/2)/a,q=qmul(gy.Q,[Math.cos(a/2),gy.wf[0]*k,gy.wf[1]*k,gy.wf[2]*k]),l=Math.hypot(q[0],q[1],q[2],q[3]);gy.Q=q.map(x=>x/l)}
 }
-// o painel fica "preso ao mundo": acompanha o movimento da câmera
-function applyCam(mo){
-  if(!mo)return;
-  const cx=CW/2,cy=CH/2,c=Math.cos(mo.th),s=Math.sin(mo.th);
-  for(const[kx,ky]of[['x','y'],['tx','ty']]){
-    const X=panel[kx]-cx,Y=panel[ky]-cy;
-    panel[kx]=cx+X*c-Y*s+mo.tx;panel[ky]=cy+X*s+Y*c+mo.ty}
-  panel.q=qmul([Math.cos(mo.th/2),0,0,Math.sin(mo.th/2)],panel.q);
-}
-function recenter(){gy.yaw=gy.pitch=gy.roll=0;gy.vyaw=gy.vpitch=gy.vroll=0;panel.grab=null;panel.q=[1,0,0,0];panel.x=panel.tx=CW/2;panel.y=panel.ty=CH/2}
-
-/* ---------- tamanho da câmera / orientação ---------- */
-function applyVideoSize(){
-  CW=v.videoWidth;CH=v.videoHeight;
-  resizeOverlay();
-  gyroInit();tracks=[];panel.init=false;panel.grab=null;
-}
-
-/* ---------- seta discreta: só aparece se o painel sair da tela ---------- */
-let vr=false;
+/* ---------- seta discreta: aponta para a dock se ela sair da tela ---------- */
 function drawArrow(){
-  if(!panel.init)return;
+  const W=WINS.find(w=>w.type==='dock');if(!W)return;
   const A=vr?(innerWidth/2)/innerHeight:innerWidth/innerHeight;
   let vw,vh;if(CW/CH>A){vh=CH;vw=CH*A}else{vw=CW;vh=CW/A}
-  const cx=CW/2,cy=CH/2,dx=panel.x-cx,dy=panel.y-cy;
+  const cx=CW/2,cy=CH/2,dx=W.front?W.x-cx:(W.vx||.01)*1e4,dy=W.front?W.y-cy:W.vy*3e3;
   if(Math.abs(dx)<vw/2-10&&Math.abs(dy)<vh/2-10)return;
   const m=Math.min(vw,vh)*.06+10,z=Math.min(vw,vh)*.035;
   const t=Math.min((vw/2-m)/(Math.abs(dx)||1e-6),(vh/2-m)/(Math.abs(dy)||1e-6));
@@ -351,239 +394,115 @@ function drawArrow(){
   xp.fillStyle='rgba(255,255,255,.9)';xp.beginPath();
   xp.moveTo(z,0);xp.lineTo(-z*.7,-z*.8);xp.lineTo(-z*.25,0);xp.lineTo(-z*.7,z*.8);xp.closePath();xp.fill();xp.restore();
 }
+function applyVideoSize(){
+  CW=v.videoWidth;CH=v.videoHeight;
+  for(const c of[cp,cf,co]){c.width=Math.round(CW*R);c.height=Math.round(CH*R)}
+  gyroInit();tracks=[];grab=null;
+}
 
-/* ---------- VR BOX 60 FPS ALVO: câmera direta na GPU + overlay único ---------- */
-// Em vez de montar duas cópias completas da câmera em um canvas 2D por frame,
-// envia-se cada frame novo da câmera à GPU uma vez; o painel é outra textura.
-let gl=null,glVideoTex=null,glOverlayTex=null,glAspect=null,glCamAspect=null,glOverlayAspect=null,
-  glOverlayW=0,glOverlayH=0,glVideoW=0,glVideoH=0,glVideoTime=-1;
-const vrMaxHeight=480,vrMinHeight=400;
-let vrQualityHeight=480,vrSlowWindows=0,vrFastWindows=0;
-const perfInfo={drawFPS:0,trackingFPS:0,handsFPS:0,renderScale:1};
-let gyroCount=0,handCount=0;
-function makeTexture(unit){
-  const tex=gl.createTexture();
-  gl.activeTexture(gl.TEXTURE0+unit);gl.bindTexture(gl.TEXTURE_2D,tex);
-  for(const [p,x] of [[gl.TEXTURE_MIN_FILTER,gl.LINEAR],[gl.TEXTURE_MAG_FILTER,gl.LINEAR],
-    [gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE],[gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE]])gl.texParameteri(gl.TEXTURE_2D,p,x);
-  gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,1,1,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array([0,0,0,255]));
-  return tex;
-}
-// Modo VR de baixa latência: não faz uploads do vídeo para WebGL.
-// As duas vistas usam o MESMO MediaStream, com composição nativa acelerada.
-let fastVRActive=false,fastVREyes=[],fastVROverlayW=0,fastVROverlayH=0;
-let fastFpsIndicatorAt=0;
-function prepareFastStereo(){
-  if(fastVREyes.length)return;
-  for(let eye=0;eye<2;eye++){
-    const clip=document.createElement('div');clip.className='eye';
-    const video=eye===0?v:document.createElement('video');video.autoplay=true;video.muted=true;
-    video.playsInline=true;video.setAttribute('playsinline','');video.setAttribute('muted','');
-    const worldLayer=document.createElement('canvas');worldLayer.className='world-layer';
-    worldLayer.width=384;worldLayer.height=240;
-    const worldLayerCtx=worldLayer.getContext('2d',{alpha:false});
-    const overlay=document.createElement('canvas');overlay.className='hand-layer';
-    const ctx=overlay.getContext('2d',{alpha:true});
-    if(!ctx)throw new Error('Canvas VR indisponível');
-    const stats=document.createElement('span');stats.className='stats';
-    stats.textContent='VR iniciado';
-    clip.append(video,worldLayer,overlay,stats);fastvr.appendChild(clip);
-    fastVREyes.push({video,worldLayer,worldLayerCtx,overlay,ctx,stats});
-  }
-  const divider=document.createElement('div');divider.className='divider';fastvr.appendChild(divider);
-}
-function setFastStereo(enabled){
-  if(enabled){
-    prepareFastStereo();
-    for(const eye of fastVREyes){
-      if(eye.video!==v&&eye.video.srcObject!==v.srcObject)eye.video.srcObject=v.srcObject;
-      // A captura única não é reiniciada ao entrar no VR Box.
-      eye.video.play().catch(()=>{});
-    }
-    fastVRActive=true;
-    fastvr.style.display='flex';glc.style.display='none';
-    stage.style.visibility='hidden';
-    updateFastOverlaySize();
-    updateWorldVisibility();
-  }else{
-    fastVRActive=false;
-    fastvr.style.display='none';stage.style.visibility='';
-    for(const eye of fastVREyes)if(eye.video!==v){eye.video.pause();eye.video.srcObject=null}
-    // Source video retains the requestVideoFrameCallback stream when leaving VR.
-    if(v.parentElement!==stage)stage.insertBefore(v,stage.firstChild);
-  }
-}
-function updateFastOverlaySize(){
-  if(!fastVREyes.length)return;
-  const w=cp.width,h=cp.height;
-  if(w===fastVROverlayW&&h===fastVROverlayH)return;
-  fastVROverlayW=w;fastVROverlayH=h;
-  for(const eye of fastVREyes){eye.overlay.width=w;eye.overlay.height=h}
-}
-function updateWorldVisibility(){
-  const active=VRUI.world!=='passthrough';
-  v.style.opacity=active?'0':'1';
-  worldpreview.style.opacity=active?'1':'0';
-  for(const eye of fastVREyes){
-    eye.video.style.opacity=active?'0':'1';
-    eye.worldLayer.style.visibility=active?'visible':'hidden';
-    // O segundo decodificador de vídeo não é necessário nos mundos virtuais.
-    // O vídeo principal permanece ativo para rastrear direção e mãos.
-    if(eye.video!==v){
-      if(active)eye.video.pause();
-      else eye.video.play().catch(()=>{});
-    }
-  }
-  lastWorldDraw=0;
-}
-function drawWorld(now){
-  if(browserVisible||VRUI.world==='passthrough')return;
-  if(now-lastWorldDraw<90)return; // ~11 Hz; head/UI refreshes independently.
-  lastWorldDraw=now;
-  const scene=VRWorlds.render(VRUI.world,now,gy.yaw,gy.pitch);
-  if(!scene)return;
-  if(fastVRActive){
-    for(const eye of fastVREyes){
-      eye.worldLayerCtx.clearRect(0,0,384,240);
-      eye.worldLayerCtx.drawImage(scene,0,0,384,240);
-    }
-  }else{
-    if(worldpreview.width!==384){worldpreview.width=384;worldpreview.height=240}
-    worldCtx.drawImage(scene,0,0,384,240);
-  }
-}
-function renderFastStereo(){
-  updateFastOverlaySize();
-  // CPU canvas pequeno apenas para painéis e mãos. O vídeo não passa por canvas.
-  for(const eye of fastVREyes){
-    eye.ctx.clearRect(0,0,eye.overlay.width,eye.overlay.height);
-    eye.ctx.drawImage(cp,0,0);
-  }
-}
-function showVRStats(){
-  const label='VR '+perfInfo.drawFPS+' FPS · IA '+perfInfo.handsFPS+' Hz · mãos '+tracks.length+(mode?' · '+mode:'');
-  for(const eye of fastVREyes){eye.stats.style.display=VRUI.hud?'':'none';if(eye.stats.textContent!==label)eye.stats.textContent=label}
-}
+/* ---------- MODO VR (VR Box / Cardboard): dois olhos + correção de lente ---------- */
+const vrc=document.createElement('canvas'),vx=vrc.getContext('2d');
+let gl=null,glTex=null,glAsp=null;
 function initGL(){
   if(gl)return;
-  gl=glc.getContext('webgl',{alpha:false,antialias:false,depth:false,stencil:false,
-    preserveDrawingBuffer:false,powerPreference:'high-performance'});
-  if(!gl)throw new Error('WebGL indisponível neste celular');
-  const shader=(type,src)=>{
-    const sh=gl.createShader(type);gl.shaderSource(sh,src);gl.compileShader(sh);
-    if(!gl.getShaderParameter(sh,gl.COMPILE_STATUS))throw new Error('Shader VR: '+gl.getShaderInfoLog(sh));
-    return sh;
-  };
+  gl=glc.getContext('webgl',{alpha:false,antialias:false});
+  const sh=(t,src)=>{const o=gl.createShader(t);gl.shaderSource(o,src);gl.compileShader(o);return o};
   const pr=gl.createProgram();
-  gl.attachShader(pr,shader(gl.VERTEX_SHADER,'attribute vec2 p;varying vec2 uv;void main(){uv=p*.5+.5;gl_Position=vec4(p,0.,1.);}'));
-  const fragment=[
-    'precision mediump float;',
-    'varying vec2 uv;uniform sampler2D videoTex;uniform sampler2D overlayTex;',
-    'uniform float asp;uniform float camAsp;uniform float overlayAsp;',
-    'const float K1=.20,K2=.08,SC=.88;',
-    'vec2 coverUV(vec2 q,float sourceAspect){',
-    ' if(sourceAspect>asp)q.x=.5+(q.x-.5)*asp/sourceAspect;',
-    ' else q.y=.5+(q.y-.5)*sourceAspect/asp;',
-    ' return q;',
-    '}',
-    'void main(){',
-    ' float eye=step(.5,uv.x);',
-    ' vec2 c=(vec2(fract(uv.x*2.),uv.y)-.5)*2.;c.x*=asp;',
-    ' float r2=dot(c,c);',
-    ' vec2 s=c*(1.+K1*r2+K2*r2*r2)*SC;s.x/=asp;',
-    ' vec2 q=s*.5+.5;',
-    ' if(q.x<0.||q.x>1.||q.y<0.||q.y>1.){gl_FragColor=vec4(0.,0.,0.,1.);return;}',
-    ' vec2 cameraUV=coverUV(q,camAsp);',
-    ' vec2 overlayUV=coverUV(q,overlayAsp);',
-    ' float coverWidth=max(1.,overlayAsp/asp);',
-    ' overlayUV.x+=(eye*2.-1.)*.012/coverWidth;',
-    ' vec4 background=texture2D(videoTex,cameraUV);',
-    ' vec4 foreground=texture2D(overlayTex,overlayUV);',
-    ' gl_FragColor=vec4(mix(background.rgb,foreground.rgb,foreground.a),1.);',
-    '}'
-  ].join('\n');
-  gl.attachShader(pr,shader(gl.FRAGMENT_SHADER,fragment));
-  gl.linkProgram(pr);
-  if(!gl.getProgramParameter(pr,gl.LINK_STATUS))throw new Error('Programa VR não pôde ser vinculado');
-  gl.useProgram(pr);
-  const buffer=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buffer);
+  gl.attachShader(pr,sh(gl.VERTEX_SHADER,'attribute vec2 p;varying vec2 uv;void main(){uv=p*.5+.5;gl_Position=vec4(p,0.,1.);}'));
+  gl.attachShader(pr,sh(gl.FRAGMENT_SHADER,`precision mediump float;varying vec2 uv;uniform sampler2D t;uniform float asp;
+  const float K1=.20,K2=.08,SC=.88;
+  void main(){
+    float e=step(.5,uv.x);
+    vec2 c=(vec2(fract(uv.x*2.),uv.y)-.5)*2.;c.x*=asp;
+    float r2=dot(c,c);
+    vec2 s=c*(1.+K1*r2+K2*r2*r2)*SC;s.x/=asp;
+    vec2 q=s*.5+.5;
+    if(q.x<0.||q.x>1.||q.y<0.||q.y>1.){gl_FragColor=vec4(0.,0.,0.,1.);return;}
+    gl_FragColor=texture2D(t,vec2((q.x+e)*.5,q.y));
+  }`));
+  gl.linkProgram(pr);gl.useProgram(pr);
+  const b=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,b);
   gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
   const loc=gl.getAttribLocation(pr,'p');gl.enableVertexAttribArray(loc);gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
-  glVideoTex=makeTexture(0);glOverlayTex=makeTexture(1);
-  gl.uniform1i(gl.getUniformLocation(pr,'videoTex'),0);
-  gl.uniform1i(gl.getUniformLocation(pr,'overlayTex'),1);
-  glAspect=gl.getUniformLocation(pr,'asp');
-  glCamAspect=gl.getUniformLocation(pr,'camAsp');
-  glOverlayAspect=gl.getUniformLocation(pr,'overlayAsp');
+  glTex=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,glTex);
+  for(const[k,val]of[[gl.TEXTURE_MIN_FILTER,gl.LINEAR],[gl.TEXTURE_MAG_FILTER,gl.LINEAR],[gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE],[gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE]])gl.texParameteri(gl.TEXTURE_2D,k,val);
   gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,true);
-  gl.disable(gl.DEPTH_TEST);gl.disable(gl.BLEND);
+  glAsp=gl.getUniformLocation(pr,'asp');
 }
 function sizeVR(){
-  // Limite anterior: 540px de altura. Agora 480px (21% menos pixels).
-  const d=Math.min(devicePixelRatio||1,1.35);
-  const base=Math.min(Math.round(innerHeight*d),vrQualityHeight);
-  const h=Math.max(240,Math.round(base/2)*2);
-  perfInfo.renderScale=h/vrMaxHeight;
-  const w=Math.max(320,Math.round((h*innerWidth/innerHeight)/2)*2);
-  if(glc.width!==w||glc.height!==h){glc.width=w;glc.height=h;}
-  if(gl){gl.viewport(0,0,w,h);gl.uniform1f(glAspect,(w/2)/h);}
-  msg.textContent=vr&&innerHeight>innerWidth?'Gire o celular na horizontal':'';
+  const d=Math.min(devicePixelRatio||1,1.25),h=Math.min(Math.round(innerHeight*d),480),w=Math.round(h*innerWidth/innerHeight);
+  vrc.width=glc.width=w;vrc.height=glc.height=h;
+  if(gl){gl.viewport(0,0,w,h);gl.uniform1f(glAsp,(w/2)/h)}
+  msg.textContent=(vr&&innerHeight>innerWidth)?'Gire o celular na horizontal':'';
 }
 addEventListener('resize',()=>{if(vr)sizeVR()});
+function cover(g,src,sw,sh,dx,dy,dw,dh,shift){
+  const k=Math.max(dw/sw,dh/sh),w=sw*k,h=sh*k;g.drawImage(src,dx+(dw-w)/2+shift,dy+(dh-h)/2,w,h)}
 function drawVR(){
-  if(!gl||v.readyState<2||!v.videoWidth)return;
-  if(v.currentTime!==glVideoTime){
-    glVideoTime=v.currentTime;
-    gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,glVideoTex);
-    if(glVideoW!==v.videoWidth||glVideoH!==v.videoHeight){
-      gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,v);
-      glVideoW=v.videoWidth;glVideoH=v.videoHeight;
-    }else gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,gl.RGBA,gl.UNSIGNED_BYTE,v);
+  const W=vrc.width,H=vrc.height,ew=W/2;
+  vx.fillStyle='#000';vx.fillRect(0,0,W,H);
+  for(let e=0;e<2;e++){
+    const ox=e*ew,dis=(e?-1:1)*ew*.012; // pequena paralaxe no painel = sensação de profundidade
+    vx.save();vx.beginPath();vx.rect(ox,0,ew,H);vx.clip();
+    if(v.readyState>=2)cover(vx,v,v.videoWidth,v.videoHeight,ox,0,ew,H,0);
+    cover(vx,cp,cp.width,cp.height,ox,0,ew,H,dis);
+    vx.globalAlpha=.10;cover(vx,cf,cf.width,cf.height,ox,0,ew,H,0);
+    vx.globalAlpha=.95;cover(vx,co,co.width,co.height,ox,0,ew,H,0);
+    vx.restore();
   }
-  gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,glOverlayTex);
-  if(glOverlayW!==cp.width||glOverlayH!==cp.height){
-    gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,cp);
-    glOverlayW=cp.width;glOverlayH=cp.height;
-  }else gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,gl.RGBA,gl.UNSIGNED_BYTE,cp);
-  gl.uniform1f(glCamAspect,v.videoWidth/v.videoHeight);
-  gl.uniform1f(glOverlayAspect,cp.width/cp.height);
+  vx.globalAlpha=1;
+  gl.bindTexture(gl.TEXTURE_2D,glTex);
+  gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,vrc);
   gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
 }
-function paintVRHand(g,T){
-  // O desenho completo da mão havia sido removido na versão anterior.
-  // Restaura a silhueta translúcida e o contorno nítido do HTML original.
-  if(!T||!T.P||T.P.length<22||!Number.isFinite(T.s)||T.s<2)return;
-  const size=T.s,outline=Math.max(2,size*.014);
-  g.save();g.lineJoin='round';g.lineCap='round';
-  g.globalAlpha=.14;shape(g,T.P,size,0,'#fff');
-  g.globalAlpha=.97;shape(g,T.P,size,outline,'#fff');
-  g.globalCompositeOperation='destination-out';shape(g,T.P,size,0,'#000');
-  g.globalCompositeOperation='source-over';
-  g.globalAlpha=.99;
-  if(T.pinch&&T.pp){
-    g.beginPath();g.arc(T.pp[0],T.pp[1],Math.max(3,size*.065),0,Math.PI*2);
-    g.fillStyle='#8fffd2';g.fill();
-    g.lineWidth=Math.max(1,size*.014);g.strokeStyle='#fff';g.stroke();
+
+let fastStereo=false,fastEyes=[],vrFrames=0,vrLastFps=performance.now(),vrMeasured=0;
+function fastInit(){
+  const root=$('fastvr');
+  if(fastEyes.length)return;
+  for(let i=0;i<2;i++){
+    const eye=document.createElement('div');eye.className='eye';
+    const vid=document.createElement('video');vid.autoplay=true;vid.muted=true;vid.playsInline=true;
+    const overlay=document.createElement('canvas');overlay.width=320;overlay.height=240;
+    eye.append(vid,overlay);root.append(eye);
+    fastEyes.push({vid,overlay,ctx:overlay.getContext('2d',{alpha:true})});
   }
-  g.restore();
 }
-async function setVR(on){
-  vr=on;R=on?.70:1;
-  vrb.style.display=on?'none':'block';
+function setFastVR(on){
+  const root=$('fastvr');
   if(on){
-    try{setFastStereo(true)}
-    catch(err){
-      console.warn('Composição direta indisponível; usando modo compatível:',err);
-      setFastStereo(false);
-      glc.style.display='block';
+    fastInit();
+    for(const eye of fastEyes){
+      if(eye.vid.srcObject!==v.srcObject){eye.vid.srcObject=v.srcObject;eye.vid.play().catch(()=>{});}
     }
-  }else setFastStereo(false);
-  resizeOverlay();
+    root.style.display='flex';fastStereo=true;
+  }else{root.style.display='none';fastStereo=false;$('vrstats').textContent='';}
+}
+function drawFastVR(){
+  for(const eye of fastEyes){
+    const {overlay,ctx}=eye;
+    if(overlay.width!==320||overlay.height!==240){overlay.width=320;overlay.height=240;}
+    ctx.clearRect(0,0,320,240);
+    const srcW=cp.width,srcH=cp.height,k=Math.max(320/srcW,240/srcH),dw=srcW*k,dh=srcH*k;
+    ctx.drawImage(cp,(320-dw)/2,(240-dh)/2,dw,dh);
+    ctx.globalAlpha=.1;ctx.drawImage(cf,(320-dw)/2,(240-dh)/2,dw,dh);
+    ctx.globalAlpha=.95;ctx.drawImage(co,(320-dw)/2,(240-dh)/2,dw,dh);ctx.globalAlpha=1;
+  }
+  vrFrames++;const now=performance.now();
+  if(now-vrLastFps>1500){
+    vrMeasured=Math.round(vrFrames*1000/(now-vrLastFps));
+    vrLastFps=now;vrFrames=0;
+    $('vrstats').textContent='VR '+vrMeasured+' FPS · câmera até 30 FPS';
+  }
+}
+
+async function setVR(on){
+  vr=on;glc.style.display='none';vrb.style.display=on?'none':'block';setFastVR(on);
   if(on){
-    if(!fastVRActive){initGL();sizeVR();}
+    // O modo rápido usa composição de vídeo nativa; sem uploads de textura por quadro.
     try{await document.documentElement.requestFullscreen({navigationUI:'hide'})}catch(e){}
     try{await screen.orientation.lock('landscape')}catch(e){}
-    if(!fastVRActive)sizeVR();
+    sizeVR();
   }else{
     msg.textContent='';
     try{screen.orientation.unlock()}catch(e){}
@@ -592,284 +511,117 @@ async function setVR(on){
 }
 vrb.onclick=()=>setVR(true);
 
-/* ---------- Apps em painel flutuante, toque e gesto de pinça ---------- */
-let pressT=null,lastTap=0,pointerDown=null,lastAppOpen=0;
-function activateVRApp(action){
-  if(!action)return false;
-  const now=performance.now();
-  if(now-lastAppOpen<430)return false;
-  lastAppOpen=now;
-  switch(action){
-    case 'home':case 'back':VRUI.page='home';return true;
-    case 'worlds':VRUI.page='worlds';return true;
-    case 'settings':VRUI.page='settings';return true;
-    case 'clock':VRUI.page='clock';return true;
-    case 'about':VRUI.page='about';return true;
-    case 'browser':case 'youtube':case 'google':{
-      const url=action==='youtube'?'https://m.youtube.com/':
-        action==='google'?'https://www.google.com/':'https://www.google.com/';
-      if(window.VRNative&&typeof VRNative.openBrowser==='function')VRNative.openBrowser(url);
-      else msg.textContent='Navegador disponível na versão APK';
-      return true;
-    }
-    case 'hands-toggle':
-      VRUI.handsEnabled=!VRUI.handsEnabled;
-      if(!VRUI.handsEnabled)tracks=[];
-      return true;
-    case 'hands-reset':
-      handsResetRequest='worker';tracks=[];
-      msg.textContent='Reconectando mãos...';return true;
-    case 'hands-compat':
-      handsResetRequest='compat';tracks=[];
-      msg.textContent='Carregando detector compatível...';return true;
-    case 'hud-toggle':
-      VRUI.hud=!VRUI.hud;showVRStats();return true;
-    case 'recenter':recenter();return true;
-    default:
-      if(action.startsWith('world:')){
-        VRUI.world=action.slice(6);
-        VRUI.page='home';updateWorldVisibility();
-        msg.textContent='';
-        return true;
-      }
-      return false;
-  }
-}
-function pointToCamera(e){
-  const target=vr&&fastVRActive?fastvr:stage;
-  const rect=target.getBoundingClientRect();
-  const eyeWidth=vr?rect.width/2:rect.width;
-  let x=e.clientX-rect.left;
-  if(vr)x=x>=eyeWidth?x-eyeWidth:x;
-  const y=e.clientY-rect.top;
-  const scale=Math.max(eyeWidth/CW,rect.height/CH);
-  return {x:(x-(eyeWidth-CW*scale)/2)/scale,
-    y:(y-(rect.height-CH*scale)/2)/scale};
-}
-document.addEventListener('pointerdown',e=>{
-  if(e.target.closest('button'))return;
-  const p=pointToCamera(e);
-  pointerDown={x:p.x,y:p.y,t:Date.now(),action:VRUI.hitTest(p.x,p.y)};
-  clearTimeout(pressT);
-  if(!pointerDown.action)
-    pressT=setTimeout(()=>{pressT=null;recenter()},720);
-},{passive:true});
+/* ---------- gestos: toque = clicar · segurar = recentrar · toque duplo = sair do VR ---------- */
+let pressT=null,lastTap=0,pdown=null;
+document.addEventListener('pointerdown',e=>{if(e.target.closest('button'))return;pdown={x:e.clientX,y:e.clientY};clearTimeout(pressT);pressT=setTimeout(()=>{pressT=null;pdown=null;recenter()},700)});
 document.addEventListener('pointerup',e=>{
-  if(pressT){clearTimeout(pressT);pressT=null;}
-  const p=pointToCamera(e),down=pointerDown;
-  pointerDown=null;
-  if(down&&Math.hypot(p.x-down.x,p.y-down.y)<CW*.07&&down.action){
-    activateVRApp(down.action);lastTap=0;return;
-  }
-  const n=Date.now();
-  if(vr&&n-lastTap<350)setVR(false);
-  lastTap=n;
-},{passive:true});
-document.addEventListener('pointercancel',()=>{clearTimeout(pressT);pressT=null;pointerDown=null});
+  if(pressT){clearTimeout(pressT);pressT=null;const n=Date.now();
+    if(vr&&n-lastTap<350)setVR(false);lastTap=n;
+    if(!vr&&started&&pdown&&Math.hypot(e.clientX-pdown.x,e.clientY-pdown.y)<14){const[cx,cy]=fromScreen(e.clientX,e.clientY),h=hitAt(cx,cy);if(h&&h.wg)h.wg.act()}}
+  pdown=null});
+document.addEventListener('pointercancel',()=>{clearTimeout(pressT);pressT=null;pdown=null});
 
-let lastMsg='',mode='',lastVRDraw=0,monitorFrames=0,monitorAt=0;
 function render(now){
   const dt=Math.min((now-render.last)/1000,.05);render.last=now;
-  if(browserVisible){requestAnimationFrame(render);return;}
-  monitorFrames++;
-  if(!monitorAt)monitorAt=now;
-  if(now-monitorAt>=2000){
-    const seconds=(now-monitorAt)/1000;
-    const fps=monitorFrames/seconds;
-    perfInfo.drawFPS=Math.round(fps);
-    perfInfo.trackingFPS=Math.round(gyroCount/seconds);
-    perfInfo.handsFPS=Math.round(handCount/seconds);
-    monitorFrames=0;gyroCount=0;handCount=0;monitorAt=now;
-    if(vr&&fastVRActive)showVRStats();
-    // Dynamic VR resolution only when GPU/UI is the bottleneck; avoid
-    // oscillating resolution when inference briefly stalls the main thread.
-    if(vr&&fastVRActive){
-      if(fps<48){vrSlowWindows++;vrFastWindows=0}
-      else if(fps>58){vrFastWindows++;vrSlowWindows=0}
-      else{vrSlowWindows=0;vrFastWindows=0}
-      if(vrSlowWindows>=3&&R>.54){
-        R=Math.max(.54,Math.round((R-.06)*100)/100);
-        resizeOverlay();vrSlowWindows=0;
-      }else if(vrFastWindows>=5&&R<.74){
-        R=Math.min(.74,Math.round((R+.02)*100)/100);
-        resizeOverlay();vrFastWindows=0;
-      }
-    }
-    if(vr&&!fastVRActive){
-      if(fps<49){vrSlowWindows++;vrFastWindows=0}
-      else if(fps>58){vrFastWindows++;vrSlowWindows=0}
-      else{vrSlowWindows=vrFastWindows=0}
-      if(vrSlowWindows>=2&&vrQualityHeight>vrMinHeight){vrQualityHeight=Math.max(vrMinHeight,vrQualityHeight-24);vrSlowWindows=0;sizeVR()}
-      else if(vrFastWindows>=4&&vrQualityHeight<vrMaxHeight){vrQualityHeight=Math.min(vrMaxHeight,vrQualityHeight+16);vrFastWindows=0;sizeVR()}
-    }
-  }
   const t=now/1000,k=1-Math.exp(-dt*45),kq=1-Math.exp(-dt*20);
-  drawWorld(now);
-  tracks=tracks.filter(T=>t-T.seen<.42);
-  if(panel.grab&&!tracks.includes(panel.grab.T))panel.grab=null;
-  xp.setTransform(R,0,0,R,0,0);xp.clearRect(0,0,CW,CH);
-  if(!fastVRActive){
-    xf.setTransform(R,0,0,R,0,0);xo.setTransform(R,0,0,R,0,0);
-    xf.clearRect(0,0,CW,CH);xo.clearRect(0,0,CW,CH);
-  }
-  let hover=false;
+  tracks=tracks.filter(T=>t-T.seen<.5);
+  if(grab&&!tracks.includes(grab.T))grab=null;
+  xp.setTransform(R,0,0,R,0,0);xf.setTransform(R,0,0,R,0,0);xo.setTransform(R,0,0,R,0,0);
+  xp.clearRect(0,0,CW,CH);xf.clearRect(0,0,CW,CH);xo.clearRect(0,0,CW,CH);
 
+  // mãos: suavização + previsão, escala e pinça
   for(const T of tracks){
-    const el=Math.min(t-T.tm,.045);
+    const el=Math.min(t-T.tm,.07);
     for(let j=0;j<21;j++){const p=T.c[j];for(let a=0;a<3;a++){const pr=T.f[j][a]+T.v[j][a]*el*.9;p[a]+=(pr-p[a])*k}}
     T.q=qnl(T.q,T.qr,kq);
     const w=T.c[0],m=T.c[9];
-    T.P[21][0]=w[0]+(w[0]-m[0])*.8;T.P[21][1]=w[1]+(w[1]-m[1])*.8;T.P[21][2]=w[2];
+    T.P=T.c.slice(0,21);T.P[21]=[w[0]+(w[0]-m[0])*.8,w[1]+(w[1]-m[1])*.8,w[2]];
     const sr=Math.max(d3(T.c[0],T.c[9]),d3(T.c[5],T.c[17])*1.1);
     T.s=T.s?T.s+(sr-T.s)*(1-Math.exp(-dt*10)):sr;
-    const d=Math.hypot(T.c[4][0]-T.c[8][0],T.c[4][1]-T.c[8][1],(T.c[4][2]-T.c[8][2])*.5)/Math.max(1,T.s),was=T.pinch;
-    // Two consecutive frames eliminate most false pinch clicks.
-    const pressed=Number.isFinite(d)&&(was?d<.43:d<.285);
-    T.pinchFrames=Math.max(0,Math.min(3,(T.pinchFrames||0)+(pressed?1:-1)));
-    T.pinch=T.pinchFrames>=2;
-    const rawPP=[(T.c[4][0]+T.c[8][0])/2,(T.c[4][1]+T.c[8][1])/2];
-    const ppSmooth=1-Math.exp(-dt*28);
-    T.pp=T.pp?[T.pp[0]+(rawPP[0]-T.pp[0])*ppSmooth,T.pp[1]+(rawPP[1]-T.pp[1])*ppSmooth]:rawPP;
-    const mg=T.s*.35;
-    const near=Math.abs(T.pp[0]-panel.x)<panel.w/2+mg&&Math.abs(T.pp[1]-panel.y)<panel.h/2+mg;
-    if(near)hover=true;
-    if(T.pinch&&!was&&!panel.grab&&near){
-      const hit=VRUI.hitTest(T.pp[0],T.pp[1]);
-      if(hit)activateVRApp(hit);
-      else panel.grab={T,ox:panel.tx-T.pp[0],oy:panel.ty-T.pp[1],qh0:T.q,qp0:panel.q};
+    const d=Math.hypot(T.c[4][0]-T.c[8][0],T.c[4][1]-T.c[8][1],(T.c[4][2]-T.c[8][2])*.5)/T.s;
+    T.was=T.pinch;const pressed=Number.isFinite(d)&&(T.was?d<.44:d<.29);
+    T.pinchFrames=Math.max(0,Math.min(3,(T.pinchFrames||0)+(pressed?1:-1)));T.pinch=T.pinchFrames>=2;
+    const pp=[(T.c[4][0]+T.c[8][0])/2,(T.c[4][1]+T.c[8][1])/2];
+    T.pp=T.pp?[T.pp[0]+(pp[0]-T.pp[0])*(1-Math.exp(-dt*27)),T.pp[1]+(pp[1]-T.pp[1])*(1-Math.exp(-dt*27))]:pp;
+  }
+
+  // câmera suavizada a 60 fps e pose das janelas (ancoradas no mundo)
+  gy.Qd=qnl(gy.Qd,gy.Q,1-Math.exp(-dt*40));
+  const Md=qmat(gy.Qd),cx0=CW/2,cy0=CH/2,fc=gy.fc;
+  for(const W of WINS){
+    W.hv=null;if(W.pr&&!tracks.some(T=>T.press&&T.press.W===W))W.pr=null;
+    if(grab&&grab.W===W){
+      const p=grab.T.pp,kp=1-Math.exp(-dt*20);
+      W.x+=(Math.min(CW*.97,Math.max(CW*.03,p[0]+grab.ox))-W.x)*kp;
+      W.y+=(Math.min(CH*.97,Math.max(CH*.03,p[1]+grab.oy))-W.y)*kp;
+      W.qu=qnl(W.qu,qmul(qmul(grab.T.q,qconj(grab.qh0)),grab.qu0),1-Math.exp(-dt*22));
+      const dc=nrm([(W.x-cx0)/fc,(W.y-cy0)/fc,1]);
+      W.wd=[0,1,2].map(i=>Md[i][0]*dc[0]+Md[i][1]*dc[1]+Md[i][2]*dc[2]);W.front=true;
+    }else{
+      const dc=[0,1,2].map(i=>Md[0][i]*W.wd[0]+Md[1][i]*W.wd[1]+Md[2][i]*W.wd[2]);
+      W.vx=dc[0];W.vy=dc[1];W.front=dc[2]>.08;
+      if(W.front){W.x=cx0+fc*dc[0]/dc[2];W.y=cy0+fc*dc[1]/dc[2]}
+      W.qu=qnl(W.qu,[1,0,0,0],1-Math.exp(-dt*5)); // volta a encarar você
     }
-    if(!T.pinch&&panel.grab&&panel.grab.T===T)panel.grab=null;
   }
-  if(!panel.init){panel.w=CW*.67;panel.h=CW*.47;panel.x=panel.tx=CW/2;panel.y=panel.ty=CH/2;buildPoly();panel.init=true}
-  if(panel.grab){
-    const G=panel.grab,p=G.T.pp;
-    panel.tx=Math.min(CW*.9,Math.max(CW*.1,p[0]+G.ox));
-    panel.ty=Math.min(CH*.9,Math.max(CH*.1,p[1]+G.oy));
-    panel.q=qnl(panel.q,qmul(qmul(G.T.q,qconj(G.qh0)),G.qp0),1-Math.exp(-dt*22));
-  }
-  const kp=1-Math.exp(-dt*20);
-  panel.x+=(panel.tx-panel.x)*kp;panel.y+=(panel.ty-panel.y)*kp;
-  const pointing=tracks.find(T=>T.pp&&!T.pinch);
-  if(pointing)VRUI.setHover(pointing.pp[0],pointing.pp[1]);
-  else VRUI.hover=null;
+  ORD=[...WINS].sort((a,b)=>a.z-b.z);
 
-  // painel
-  const M=qmat(panel.q),F=CW*1.3,g=!!panel.grab,face=Math.abs(M[2][2]);
-  const pts=panel.projected;for(let i=0;i<panel.poly.length;i++)projectInto(M,panel.poly[i],F,pts[i]);
-  polyPath(xp,pts);
-  xp.fillStyle=`rgba(255,255,255,${(g?.16:hover?.13:.10)+.10*face})`;xp.fill();
-  xp.lineJoin='round';xp.lineWidth=g?3:2;
-  xp.strokeStyle=g?'rgba(255,255,255,.95)':hover?'rgba(255,255,255,.8)':'rgba(255,255,255,.55)';xp.stroke();
-  const bar=[[-panel.w*.1,panel.h/2-panel.h*.07,0],[panel.w*.1,panel.h/2-panel.h*.07,0]].map(p=>project(M,p,F));
-  xp.beginPath();xp.moveTo(bar[0][0],bar[0][1]);xp.lineTo(bar[1][0],bar[1][1]);xp.lineCap='round';xp.lineWidth=5;xp.strokeStyle='rgba(255,255,255,.7)';xp.stroke();
-  // Ícones e páginas usam a mesma projeção 3D da aba existente.
-  VRUI.draw(xp,panel,(x,y,z)=>project(M,[x,y,z],F),now,perfInfo);
-
-  drawArrow();
-  // O modo rápido desenha mãos diretamente no painel, sem 2 canvases extras.
+  // interação: passar o dedo = realçar · pinça rápida = clicar · pinça segurando = mover/girar janela
   for(const T of tracks){
-    if(fastVRActive){paintVRHand(xp,T);continue}
+    const h=hitAt(T.pp[0],T.pp[1]);
+    if(!T.pinch&&h&&h.wg)h.W.hv=h.wg.id;
+    if(T.pinch&&!T.was){
+      if(h&&h.wg){T.press={W:h.W,id:h.wg.id,t:now,act:h.wg.act};h.W.pr=h.wg.id}
+      else if(h&&!h.W.fixed&&!grab){grab={T,W:h.W,ox:h.W.x-T.pp[0],oy:h.W.y-T.pp[1],qh0:T.q,qu0:h.W.qu};h.W.z=++zc}}
+    if(!T.pinch&&T.was){
+      if(T.press){const P=T.press;P.W.pr=null;T.press=null;const hh=hitAt(T.pp[0],T.pp[1]);
+        if(hh&&hh.wg&&hh.W===P.W&&hh.wg.id===P.id&&now-P.t<900)P.act()}
+      if(grab&&grab.T===T)grab=null}
+  }
+
+  // janelas
+  for(const W of ORD){if(!W.front)continue;const sg=sigOf(W);if(sg!==W.sig){W.sig=sg;paint(W)}drawWin(W)}
+  updateFrame();drawArrow();
+  if(flash){const a=1-(now-flash)/220;if(a>0){xp.fillStyle=`rgba(255,255,255,${a*.6})`;xp.fillRect(0,0,CW,CH)}else flash=0}
+
+  // mãos (contorno fino + fundo de vidro) e cursor
+  if(S.hands)for(const T of tracks){
     const ow=Math.max(1.5,T.s*.013);
     shape(xf,T.P,T.s,0,'#fff');
     shape(xo,T.P,T.s,ow,'#fff');
     xo.globalCompositeOperation='destination-out';shape(xo,T.P,T.s,0,'#000');
     xo.globalCompositeOperation='source-over';
-    if(T.pinch){xo.beginPath();xo.arc(T.pp[0],T.pp[1],T.s*.07,0,7);xo.fillStyle='#fff';xo.fill()}
   }
-  if(vr){
-    if(!fastVRActive){
-      xp.save();xp.setTransform(1,0,0,1,0,0);
-      xp.globalAlpha=.10;xp.drawImage(cf,0,0);
-      xp.globalAlpha=.95;xp.drawImage(co,0,0);
-      xp.restore();
-    }
-    lastVRDraw=now;
-    if(fastVRActive)renderFastStereo();else drawVR();
+  for(const T of tracks){
+    xo.beginPath();xo.arc(T.pp[0],T.pp[1],T.s*(T.pinch?.045:.07),0,7);
+    if(T.pinch){xo.fillStyle='#fff';xo.fill()}else{xo.strokeStyle='#fff';xo.lineWidth=2;xo.stroke()}
   }
+  if(vr){if(fastStereo)drawFastVR();else drawVR();}
   requestAnimationFrame(render);
 }
 render.last=performance.now();
 
 const TV='https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.21/';
 const MODEL='https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
-// Background inference: model processing stays off the screen's 60 Hz thread.
-// If a WebView cannot run the worker, legacy MediaPipe is still available.
-async function initWorkerHands(){
-  if(typeof Worker==='undefined'||typeof createImageBitmap!=='function')
-    throw Error('Worker de mãos indisponível neste WebView');
-  const worker=new Worker('/assets/hand-worker.js',{type:'module'});
-  let busy=false,failures=0,dead=false,lastSentAt=0;
-  let fn=async video=>{
-    if(dead||video.readyState<2)return;
-    if(busy){
-      // Detector congelado: retornar automaticamente ao modelo compatível.
-      if(performance.now()-lastSentAt>3000){dead=true;fn.dead=true;worker.terminate()}
-      return;
-    }
-    busy=true;lastSentAt=performance.now();
-    try{
-      // Browser asynchronously snapshots a camera frame; only one is in flight.
-      let bitmap;
-      try{bitmap=await createImageBitmap(video,{resizeWidth:288,resizeHeight:Math.max(144,Math.round(288*video.videoHeight/video.videoWidth)),resizeQuality:'low'})}
-      catch(e){bitmap=await createImageBitmap(video)}
-      if(dead){bitmap.close();busy=false;return}
-      worker.postMessage({type:'frame',bitmap,timestamp:performance.now()},[bitmap]);
-    }catch(err){
-      busy=false;
-      failures++;
-      if(failures>=4){dead=true;fn.dead=true;worker.terminate()}
-    }
-  };
-  fn.worker=true;fn.dead=false;fn.lastResult=performance.now();
-  fn.stop=()=>{dead=true;fn.dead=true;worker.terminate()};
-  return await new Promise((resolve,reject)=>{
-    const timeout=setTimeout(()=>{
-      dead=true;worker.terminate();
-      reject(Error('Carregamento do detector excedeu o limite'));
-    },12000);
-    worker.onmessage=e=>{
-      const data=e.data||{};
-      if(data.type==='ready'){
-        clearTimeout(timeout);mode='IA em segundo plano';resolve(fn);
-      }else if(data.type==='init-error'){
-        clearTimeout(timeout);dead=true;fn.dead=true;
-        worker.terminate();reject(Error(data.message||'Erro iniciando worker'));
-      }else if(data.type==='result'){
-        busy=false;failures=0;fn.lastResult=performance.now();
-        onLandmarks(data.landmarks||[]);
-        handCount++;
-      }else if(data.type==='frame-error'){
-        busy=false;failures++;
-        if(failures>=4){dead=true;fn.dead=true;worker.terminate();}
-      }
-    };
-    worker.onerror=err=>{
-      clearTimeout(timeout);dead=true;fn.dead=true;
-      worker.terminate();
-      reject(Error('Falha carregando IA em segundo plano'));
-    };
-  });
-}
 async function initTasks(){
   const {HandLandmarker,FilesetResolver}=await import(TV+'vision_bundle.mjs');
   const fs=await FilesetResolver.forVisionTasks(TV+'wasm');
-  const mk=d=>HandLandmarker.createFromOptions(fs,{baseOptions:{modelAssetPath:MODEL,delegate:d},runningMode:'VIDEO',numHands:2,minHandDetectionConfidence:.46,minHandPresenceConfidence:.45,minTrackingConfidence:.56});
+  const mk=d=>HandLandmarker.createFromOptions(fs,{baseOptions:{modelAssetPath:MODEL,delegate:d},runningMode:'VIDEO',numHands:2,minHandDetectionConfidence:.5,minHandPresenceConfidence:.5,minTrackingConfidence:.5});
   let lm;try{lm=await mk('GPU');mode='GPU'}catch(e){lm=await mk('CPU');mode='CPU'}
   let lastTs=0;
-  const detect=async vid=>{const ts=Math.max(performance.now(),lastTs+1);lastTs=ts;return lm.detectForVideo(vid,ts).landmarks||[]};
-  detect.stop=()=>{if(typeof lm.close==='function')lm.close()};return detect;
+  const fn=async vid=>{const ts=Math.max(performance.now(),lastTs+1);lastTs=ts;return lm.detectForVideo(vid,ts).landmarks||[]};
+  fn.setN=n=>lm.setOptions({numHands:n});return fn;
 }
 const loadScript=u=>new Promise((ok,no)=>{const e=document.createElement('script');e.src=u;e.onload=ok;e.onerror=no;document.head.appendChild(e)});
 async function initLegacy(){
   const B='https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/';
   await loadScript(B+'hands.js');
   const hd=new Hands({locateFile:f=>B+f});
-  hd.setOptions({maxNumHands:2,modelComplexity:0,minDetectionConfidence:.48,minTrackingConfidence:.55});
+  hd.setOptions({maxNumHands:2,modelComplexity:0,minDetectionConfidence:.55,minTrackingConfidence:.5});
   let res=[];hd.onResults(r=>{res=r.multiHandLandmarks||[]});
-  const sc=document.createElement('canvas');sc.width=384;sc.height=Math.round(384*CH/CW);const sg=sc.getContext('2d');
+  const sc=document.createElement('canvas');sc.width=288;sc.height=Math.round(288*CH/CW);const sg=sc.getContext('2d');
   mode='compatível';
-  const detect=async vid=>{sg.drawImage(vid,0,0,sc.width,sc.height);await hd.send({image:sc});return res};
-  detect.stop=()=>{if(typeof hd.close==='function')hd.close()};return detect;
+  return async vid=>{sg.drawImage(vid,0,0,sc.width,sc.height);await hd.send({image:sc});return res};
 }
 
 go.onclick=async()=>{
@@ -877,75 +629,31 @@ go.onclick=async()=>{
   try{
     v.srcObject=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:576,max:640},height:{ideal:432,max:480},frameRate:{ideal:30,max:30}},audio:false});
     await v.play();
-    applyVideoSize();started=true;vrb.style.display='block';
+    applyVideoSize();started=true;initUI();vrb.style.display='block';
     v.addEventListener('resize',()=>{if(v.videoWidth!==CW||v.videoHeight!==CH)applyVideoSize()});
     try{navigator.wakeLock&&navigator.wakeLock.request('screen')}catch(e){}
     requestAnimationFrame(render);
-    // A direção é iniciada imediatamente, independentemente de baixar a IA.
-    // Agendas independentes: o reconhecimento de mãos não pula deliberadamente
-    // quadros de orientação; ambas respeitam um orçamento de CPU adaptativo.
-    let lastGyFrame=-1,lastHandFrame=-1,lastGyAt=0,lastHandAt=0,handEMA=0,gyroEMA=0;
-    const queueFrame=fn=>v.requestVideoFrameCallback?v.requestVideoFrameCallback(fn):requestAnimationFrame(fn);
-    const motionLoop=()=>{
-      const t=performance.now();
-      if(!browserVisible&&!document.hidden&&v.readyState>=2&&v.currentTime!==lastGyFrame&&t-lastGyAt>=Math.max(vr?(perfInfo.drawFPS>0&&perfInfo.drawFPS<53?95:56):handEMA>55?80:handEMA>32?66:45,gyroEMA*1.4)){
-        lastGyFrame=v.currentTime;lastGyAt=t;
-        const began=performance.now();
-        try{const mo=gyroStep(v);gyroCount++;if(panel.init&&!panel.grab)applyCam(mo)}catch(e){console.warn('Direção:',e)}
-        const cost=performance.now()-began;gyroEMA=gyroEMA?gyroEMA*.8+cost*.2:cost;
-      }
-      if(started)queueFrame(motionLoop);
-    };
-    queueFrame(motionLoop);
     msg.textContent='Carregando detector (alguns segundos)...';
     let det;
-    try{det=await initWorkerHands()}
-    catch(e){
-      console.warn('Worker de mãos indisponível, usando modo compatível:',e);
-      try{det=await initLegacy()}catch(legacyError){console.warn(legacyError);det=await initTasks()}
-    }
+    try{det=await initTasks()}catch(e){console.warn(e);det=await initLegacy()}
     msg.textContent='';
-    let recoveringHands=false;
-    const handsLoop=async()=>{
-      if(browserVisible){if(started)queueFrame(handsLoop);return}
-      if(handsResetRequest&&!recoveringHands){
-        const requested=handsResetRequest;handsResetRequest='';
-        recoveringHands=true;const old=det;
+    let lastT=-1,ema=0,gyTick=0,gyEvery=2,idle=0,nh=2,lastSw=0,lastN=0;
+    const loop=async()=>{
+      if(v.readyState>=2&&v.currentTime!==lastT){
+        lastT=v.currentTime;const t0=performance.now();
         try{
-          det=requested==='compat'?await initLegacy():await initWorkerHands();
-          if(old&&typeof old.stop==='function')old.stop();
-          mode=det.worker?'IA em segundo plano':'compatível';
-          msg.textContent='';
-        }catch(err){
-          console.warn('Não foi possível trocar o detector de mãos:',err);
-          if(requested==='worker'){
-            try{det=await initLegacy();if(old?.stop)old.stop();mode='compatível';}
-            catch(e){det=old}
-          }else det=old;
-          msg.textContent='IA atual: '+mode;
-        }finally{recoveringHands=false}
+          if(gyTick++%gyEvery===0)gyroStep(v);
+          if(lastN>0||(idle++&1)===0){ // sem mãos na tela: procura em metade dos quadros (economiza processamento)
+            const L=await det(v);lastN=L.length;onLandmarks(L);
+          }
+        }catch(e){console.warn(e)}
+        const now=performance.now(),dm=now-t0;ema=ema?ema*.9+dm*.1:dm;gyEvery=ema>22?3:2;
+        if(det.setN&&now-lastSw>4000){ // desempenho adaptativo: com 1 mão e aparelho lento, rastreia só 1 mão
+          if(nh===2&&ema>24&&lastN<2){nh=1;det.setN(1);lastSw=now}
+          else if(nh===1&&ema<10){nh=2;det.setN(2);lastSw=now}}
       }
-      if(det.worker&&det.dead&&!recoveringHands){
-        recoveringHands=true;const old=det;
-        try{det=await initLegacy();mode='compatível';if(old?.stop)old.stop()}
-        catch(err){console.warn('Falha no detector alternativo:',err);}
-        recoveringHands=false;
-      }
-      if(!VRUI.handsEnabled){tracks=[];if(started)queueFrame(handsLoop);return}
-      const t=performance.now(),base=det.worker?62:handEMA>55?145:handEMA>33?110:handEMA>19?88:70;
-      const target=(vr&&perfInfo.drawFPS>0&&perfInfo.drawFPS<50)?Math.max(base,125):base;
-      if(!browserVisible&&!document.hidden&&v.readyState>=2&&v.currentTime!==lastHandFrame&&t-lastHandAt>=target){
-        lastHandFrame=v.currentTime;lastHandAt=t;
-        const began=performance.now();
-        try{
-          if(det.worker)await det(v);
-          else {onLandmarks(await det(v));handCount++;}
-        }catch(e){console.warn('Mãos:',e)}
-        const cost=performance.now()-began;handEMA=handEMA?handEMA*.85+cost*.15:cost;
-      }
-      if(started)queueFrame(handsLoop);
-    };
-    queueFrame(handsLoop);
+      v.requestVideoFrameCallback?v.requestVideoFrameCallback(loop):requestAnimationFrame(loop)};
+    loop();
   }catch(e){msg.textContent='Erro: '+e.message;go.style.display='block'}
 };
 </script>
