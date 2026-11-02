@@ -83,6 +83,6 @@ jobs:
         with:
           tag_name: handtracking-vrbox-auto
           name: Hand Tracking VR Box - APK automatico
-          body: 'Pocket Space 2.3: corrigido problema de imagem dupla no VR Box com calibracao binocular personalizavel (separacao, zoom e alinhamento vertical), marcador optico opcional e ajustes salvos. Texto mono removido do meio das lentes. Modo VR acelerado e apps, maos, mundos e navegador preservados. O telefone fornece uma unica camera, portanto a imagem e duplicada para visualizacao binocular, sem profundidade estereoscopica real. 60 FPS e meta, nao garantia.'
+          body: 'Pocket Space 2.4: alinhamento binocular baseado na largura fisica da tela (medicao Android, estimativa Redmi 10C 156 mm) e distancia real entre as lentes, com controle IPD 54-76 mm e ajuste fino em mm. Calibracao dentro do VR Box pelos botoes de volume; marcadores e teste individual por olho. Forca orientacao landscape, mantem caminho rapido VR e rastreamento de maos. APK experimental: a camera e monocular, sem estereoscopia real. Distorsao optica do visor nao e totalmente corrigida. 60 FPS e meta nao garantia.'
           files: HandTrackingVRBox.apk
           overwrite_files: true
