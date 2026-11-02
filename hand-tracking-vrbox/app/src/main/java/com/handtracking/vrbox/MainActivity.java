@@ -4,6 +4,7 @@ import android.Manifest;
 import android.app.Activity;
 import android.os.Bundle;
 import android.content.pm.PackageManager;
+import android.content.pm.ActivityInfo;
 import android.net.Uri;
 import android.webkit.JavascriptInterface;
 import android.webkit.PermissionRequest;
@@ -104,6 +105,9 @@ public class MainActivity extends Activity {
       }
       @JavascriptInterface public void setVrCalibrationActive(boolean active){
         vrCalibrationActive=active;
+      }
+      @JavascriptInterface public void setVrMode(boolean on){
+        runOnUiThread(()->setRequestedOrientation(on?ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE:ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED));
       }
     },"VRNative");
     web.setWebViewClient(new WebViewClient(){
