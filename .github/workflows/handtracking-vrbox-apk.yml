@@ -69,6 +69,6 @@ jobs:
         with:
           tag_name: handtracking-vrbox-auto
           name: Hand Tracking VR Box - APK automatico
-          body: 'Versao 1.3: VR leve com duas vistas de video aceleradas pelo Android, sem transferencias continuas da camera para WebGL. Rastreamento de maos em worker quando suportado, resolucao adaptativa e medidor real de FPS. Meta 60 FPS (nao garantidos); a camera pode enviar apenas 30 quadros/s. Requer permissao de camera, internet para MediaPipe e Android WebView atualizado.'
+          body: 'Pocket Space 2.0: maos restauradas no modo VR; launcher 3D flutuante com icones por toque ou pinca; mundos leves (Ilhas do ceu, Cidade neon, Base lunar); navegador HTTPS dentro do APK e atalhos YouTube/Google. Preserva render estereo leve com resolucao adaptativa. Meta 60 FPS de renderizacao, sem garantia no celular; camera ate 30 FPS. Requer camera, internet para MediaPipe e WebView atualizado. Browser e exibido em 2D.'
           files: HandTrackingVRBox.apk
           overwrite_files: true
