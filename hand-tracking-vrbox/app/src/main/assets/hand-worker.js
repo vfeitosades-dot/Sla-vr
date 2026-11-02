@@ -1,7 +1,7 @@
 // MediaPipe hand inference on a dedicated worker thread, to keep VR rendering
 // responsive when on-device inference takes longer than a display frame.
 const CDN='https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.21/';
-const MODEL='https://cdn.jsdelivr.net/npm/expo-vision-camera-v4-mediapipe@1.4.0/hand_landmarker.task';
+const MODEL='https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
 let model=null,canvas=null,ctx=null,lastTs=0;
 async function init(){
   if(typeof OffscreenCanvas==='undefined')throw Error('OffscreenCanvas indisponível');
@@ -10,11 +10,12 @@ async function init(){
   model=await HandLandmarker.createFromOptions(fs,{
     baseOptions:{modelAssetPath:MODEL,delegate:'CPU'},
     runningMode:'VIDEO',numHands:2,
-    minHandDetectionConfidence:.46,
-    minHandPresenceConfidence:.45,
-    minTrackingConfidence:.56
+    minHandDetectionConfidence:.45,
+    minHandPresenceConfidence:.48,
+    minTrackingConfidence:.57
   });
-  canvas=new OffscreenCanvas(320,240);
+  // Smaller input saves CPU cycles while keeping the original 21 landmarks.
+  canvas=new OffscreenCanvas(288,216);
   ctx=canvas.getContext('2d',{alpha:false,willReadFrequently:true});
   if(!ctx)throw Error('Canvas do detector indisponível');
   self.postMessage({type:'ready'});
@@ -24,10 +25,10 @@ self.onmessage=async e=>{
   if(data.type!=='frame'||!model)return;
   const bitmap=data.bitmap;
   try{
-    const width=Math.max(1,bitmap.width||320),height=Math.max(1,bitmap.height||240);
-    const targetHeight=Math.max(120,Math.round(320*height/width));
+    const width=Math.max(1,bitmap.width||288),height=Math.max(1,bitmap.height||216);
+    const targetHeight=Math.max(112,Math.min(288,Math.round(288*height/width)));
     if(canvas.height!==targetHeight)canvas.height=targetHeight;
-    ctx.drawImage(bitmap,0,0,320,targetHeight);
+    ctx.drawImage(bitmap,0,0,288,targetHeight);
     const now=Math.max(lastTs+1,Number(data.timestamp)||performance.now());
     lastTs=now;
     const result=model.detectForVideo(canvas,now);
