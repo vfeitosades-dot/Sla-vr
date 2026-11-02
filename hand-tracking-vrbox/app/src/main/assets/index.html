@@ -558,15 +558,85 @@ async function setVR(on){
 }
 vrb.onclick=()=>setVR(true);
 
-/* ---------- gestos: segurar = recentrar · toque duplo = sair do VR ---------- */
-let pressT=null,lastTap=0;
-document.addEventListener('pointerdown',e=>{if(e.target.closest('button'))return;clearTimeout(pressT);pressT=setTimeout(()=>{pressT=null;recenter()},700)});
-document.addEventListener('pointerup',()=>{if(pressT){clearTimeout(pressT);pressT=null;const n=Date.now();if(vr&&n-lastTap<350)setVR(false);lastTap=n}});
-document.addEventListener('pointercancel',()=>{clearTimeout(pressT);pressT=null});
+/* ---------- Apps em painel flutuante, toque e gesto de pinça ---------- */
+let pressT=null,lastTap=0,pointerDown=null,lastAppOpen=0;
+function activateVRApp(action){
+  if(!action)return false;
+  const now=performance.now();
+  if(now-lastAppOpen<430)return false;
+  lastAppOpen=now;
+  switch(action){
+    case 'home':case 'back':VRUI.page='home';return true;
+    case 'worlds':VRUI.page='worlds';return true;
+    case 'settings':VRUI.page='settings';return true;
+    case 'clock':VRUI.page='clock';return true;
+    case 'about':VRUI.page='about';return true;
+    case 'browser':case 'youtube':case 'google':{
+      const url=action==='youtube'?'https://m.youtube.com/':
+        action==='google'?'https://www.google.com/':'https://www.google.com/';
+      if(window.VRNative&&typeof VRNative.openBrowser==='function')VRNative.openBrowser(url);
+      else msg.textContent='Navegador disponível na versão APK';
+      return true;
+    }
+    case 'hands-toggle':
+      VRUI.handsEnabled=!VRUI.handsEnabled;
+      if(!VRUI.handsEnabled)tracks=[];
+      return true;
+    case 'hands-reset':
+      handsResetRequest='worker';tracks=[];
+      msg.textContent='Reconectando mãos...';return true;
+    case 'hands-compat':
+      handsResetRequest='compat';tracks=[];
+      msg.textContent='Carregando detector compatível...';return true;
+    case 'hud-toggle':
+      VRUI.hud=!VRUI.hud;showVRStats();return true;
+    case 'recenter':recenter();return true;
+    default:
+      if(action.startsWith('world:')){
+        VRUI.world=action.slice(6);
+        VRUI.page='home';updateWorldVisibility();
+        msg.textContent='';
+        return true;
+      }
+      return false;
+  }
+}
+function pointToCamera(e){
+  const target=vr&&fastVRActive?fastvr:stage;
+  const rect=target.getBoundingClientRect();
+  const eyeWidth=vr?rect.width/2:rect.width;
+  let x=e.clientX-rect.left;
+  if(vr)x=x>=eyeWidth?x-eyeWidth:x;
+  const y=e.clientY-rect.top;
+  const scale=Math.max(eyeWidth/CW,rect.height/CH);
+  return {x:(x-(eyeWidth-CW*scale)/2)/scale,
+    y:(y-(rect.height-CH*scale)/2)/scale};
+}
+document.addEventListener('pointerdown',e=>{
+  if(e.target.closest('button'))return;
+  const p=pointToCamera(e);
+  pointerDown={x:p.x,y:p.y,t:Date.now(),action:VRUI.hitTest(p.x,p.y)};
+  clearTimeout(pressT);
+  if(!pointerDown.action)
+    pressT=setTimeout(()=>{pressT=null;recenter()},720);
+},{passive:true});
+document.addEventListener('pointerup',e=>{
+  if(pressT){clearTimeout(pressT);pressT=null;}
+  const p=pointToCamera(e),down=pointerDown;
+  pointerDown=null;
+  if(down&&Math.hypot(p.x-down.x,p.y-down.y)<CW*.07&&down.action){
+    activateVRApp(down.action);lastTap=0;return;
+  }
+  const n=Date.now();
+  if(vr&&n-lastTap<350)setVR(false);
+  lastTap=n;
+},{passive:true});
+document.addEventListener('pointercancel',()=>{clearTimeout(pressT);pressT=null;pointerDown=null});
 
 let lastMsg='',mode='',lastVRDraw=0,monitorFrames=0,monitorAt=0;
 function render(now){
   const dt=Math.min((now-render.last)/1000,.05);render.last=now;
+  if(browserVisible){requestAnimationFrame(render);return;}
   monitorFrames++;
   if(!monitorAt)monitorAt=now;
   if(now-monitorAt>=2000){
@@ -624,10 +694,14 @@ function render(now){
     const mg=T.s*.35;
     const near=Math.abs(T.pp[0]-panel.x)<panel.w/2+mg&&Math.abs(T.pp[1]-panel.y)<panel.h/2+mg;
     if(near)hover=true;
-    if(T.pinch&&!was&&!panel.grab&&near)panel.grab={T,ox:panel.tx-T.pp[0],oy:panel.ty-T.pp[1],qh0:T.q,qp0:panel.q};
+    if(T.pinch&&!was&&!panel.grab&&near){
+      const hit=VRUI.hitTest(T.pp[0],T.pp[1]);
+      if(hit)activateVRApp(hit);
+      else panel.grab={T,ox:panel.tx-T.pp[0],oy:panel.ty-T.pp[1],qh0:T.q,qp0:panel.q};
+    }
     if(!T.pinch&&panel.grab&&panel.grab.T===T)panel.grab=null;
   }
-  if(!panel.init){panel.w=CW*.6;panel.h=CW*.42;panel.x=panel.tx=CW/2;panel.y=panel.ty=CH/2;buildPoly();panel.init=true}
+  if(!panel.init){panel.w=CW*.67;panel.h=CW*.47;panel.x=panel.tx=CW/2;panel.y=panel.ty=CH/2;buildPoly();panel.init=true}
   if(panel.grab){
     const G=panel.grab,p=G.T.pp;
     panel.tx=Math.min(CW*.9,Math.max(CW*.1,p[0]+G.ox));
@@ -636,6 +710,9 @@ function render(now){
   }
   const kp=1-Math.exp(-dt*20);
   panel.x+=(panel.tx-panel.x)*kp;panel.y+=(panel.ty-panel.y)*kp;
+  const pointing=tracks.find(T=>T.pp&&!T.pinch);
+  if(pointing)VRUI.setHover(pointing.pp[0],pointing.pp[1]);
+  else VRUI.hover=null;
 
   // painel
   const M=qmat(panel.q),F=CW*1.3,g=!!panel.grab,face=Math.abs(M[2][2]);
@@ -646,6 +723,8 @@ function render(now){
   xp.strokeStyle=g?'rgba(255,255,255,.95)':hover?'rgba(255,255,255,.8)':'rgba(255,255,255,.55)';xp.stroke();
   const bar=[[-panel.w*.1,panel.h/2-panel.h*.07,0],[panel.w*.1,panel.h/2-panel.h*.07,0]].map(p=>project(M,p,F));
   xp.beginPath();xp.moveTo(bar[0][0],bar[0][1]);xp.lineTo(bar[1][0],bar[1][1]);xp.lineCap='round';xp.lineWidth=5;xp.strokeStyle='rgba(255,255,255,.7)';xp.stroke();
+  // Ícones e páginas usam a mesma projeção 3D da aba existente.
+  VRUI.draw(xp,panel,(x,y,z)=>project(M,[x,y,z],F),now,perfInfo);
 
   drawArrow();
   // O modo rápido desenha mãos diretamente no painel, sem 2 canvases extras.
