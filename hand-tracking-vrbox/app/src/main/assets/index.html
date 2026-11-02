@@ -34,7 +34,7 @@ button{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 24p
 #fastvr.guides .vr-target{display:block}
 #fastvr .eye-label{display:none;position:absolute;bottom:15%;left:0;right:0;text-align:center;color:#d7ffff;font:12px system-ui;letter-spacing:1px;text-shadow:0 1px 3px #000}
 #fastvr.guides .eye-label{display:block}
-#vrstats{position:fixed;z-index:7;top:8px;left:50%;transform:translateX(-50%);font:11px system-ui;color:#b8f5ff;text-shadow:0 1px 4px black;pointer-events:none;white-space:nowrap}
+#vrstats{display:none;pointer-events:none} /* Texto central único não deve atravessar os dois olhos. */
 #vrsetup{display:none;left:16px;right:auto;transform:none;padding:11px 15px;font-size:13px;background:#15263be8;color:#fff;border:1px solid #a5cffb80}
 #vrpanel{display:none;position:fixed;z-index:12;inset:auto 10px 10px;max-width:460px;margin:auto;background:rgba(11,19,33,.98);border:1px solid #829fba;border-radius:16px;padding:16px 18px;color:#eff8ff;max-height:80vh;overflow:auto;touch-action:pan-y;box-shadow:0 14px 50px #0009}
 #vrpanel h2{font-size:18px;margin:0 0 8px}
@@ -58,14 +58,14 @@ button{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 24p
 <button id="vrquick" type="button" aria-label="Ajustar VR">⚙</button>
 <div id="vrpanel" role="group" aria-label="Calibrar alinhamento do VR Box">
   <h2>🥽 Ajustar VR Box</h2>
-  <p>Coloque uma imagem em frente a cada lente. Ajuste até as duas imagens parecerem uma só, sem forçar os olhos. Os valores ficam salvos neste celular.</p>
-  <label for="vreyeShift">Distância entre as imagens <output id="vrshiftValue">6%</output></label>
+  <p>Com o celular no VR Box, os dois círculos de calibração devem aparecer como um só, sem esforço visual. O ajuste positivo aproxima as imagens; o negativo afasta. Os valores ficam salvos neste celular.</p>
+  <label for="vreyeShift">Aproximar (+) ou afastar (-) <output id="vrshiftValue">6%</output></label>
   <input type="range" id="vreyeShift" min="-14" max="14" step="1" value="6">
   <label for="vrzoom">Zoom dos olhos <output id="vrzoomValue">1,20×</output></label>
   <input type="range" id="vrzoom" min="1.08" max="1.40" step=".02" value="1.20">
   <label for="vrvertical">Alinhamento vertical <output id="vrverticalValue">0%</output></label>
   <input type="range" id="vrvertical" min="-8" max="8" step="1" value="0">
-  <label for="vrguides">Mostrar marcadores de calibração <input type="checkbox" id="vrguides" checked></label>
+  <label for="vrguides">Mostrar marcadores de calibração <input type="checkbox" id="vrguides"></label>
   <div class="vr-actions">
     <button id="vrdefault" type="button">Restaurar padrão</button>
     <button id="vrclose" type="button">Fechar</button>
@@ -533,7 +533,7 @@ function drawVR(){
 }
 
 let fastStereo=false,fastEyes=[],vrFrames=0,vrLastFps=performance.now(),vrMeasured=0;
-const defaultVRCalibration={shift:6,zoom:1.20,vertical:0,guides:true};
+const defaultVRCalibration={shift:6,zoom:1.20,vertical:0,guides:false};
 const vrCalibration={...defaultVRCalibration};
 try{
   const saved=JSON.parse(localStorage.getItem('pocketspace.vr.calibration')||'null');
@@ -568,7 +568,8 @@ function updateVRCalibration(){
 }
 function toggleVRPanel(show){
   $('vrpanel').style.display=show?'block':'none';
-  $('vrquick').style.display=vr&&!show?'block':'none';
+  // Never show mono UI over only one eye: it causes binocular ghosting.
+  $('vrquick').style.display='none';
   if(show)updateVRCalibration();
 }
 $('vrsetup').onclick=()=>toggleVRPanel(true);
@@ -642,7 +643,7 @@ function drawFastVR(){
 async function setVR(on){
   vr=on;glc.style.display='none';vrb.style.display=on?'none':'block';setFastVR(on);
   $('vrsetup').style.display=on?'none':'block';
-  $('vrquick').style.display=on?'block':'none';
+  $('vrquick').style.display='none';
   if(!on)toggleVRPanel(false);
   if(on){
     // O modo rápido usa composição de vídeo nativa; sem uploads de textura por quadro.
