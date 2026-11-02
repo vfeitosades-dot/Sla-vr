@@ -69,6 +69,6 @@ jobs:
         with:
           tag_name: handtracking-vrbox-auto
           name: Hand Tracking VR Box - APK automatico
-          body: 'Pocket Space 2.0: maos restauradas no modo VR; launcher 3D flutuante com icones por toque ou pinca; mundos leves (Ilhas do ceu, Cidade neon, Base lunar); navegador HTTPS dentro do APK e atalhos YouTube/Google. Preserva render estereo leve com resolucao adaptativa. Meta 60 FPS de renderizacao, sem garantia no celular; camera ate 30 FPS. Requer camera, internet para MediaPipe e WebView atualizado. Browser e exibido em 2D.'
+          body: 'Pocket Space 2.1: biblioteca e dock originais inspirados no estilo Navigator de VR, cards coloridos, busca e aba flutuante. Detector de maos MediaPipe com modelo oficial, imagens reduzidas e pinca estabilizada. Rastreamento visual de direcao mais suave; browser e mundos 2.0 preservados. APK de teste para Android, meta de 60 FPS nao garantida. A camera pode ficar em 30 FPS.'
           files: HandTrackingVRBox.apk
           overwrite_files: true
