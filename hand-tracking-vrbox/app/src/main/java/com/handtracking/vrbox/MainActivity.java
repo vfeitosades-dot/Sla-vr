@@ -29,8 +29,16 @@ public class MainActivity extends Activity {
     web.setWebViewClient(new WebViewClient(){
       @Override public WebResourceResponse shouldInterceptRequest(WebView view,WebResourceRequest request){
         android.net.Uri uri=request.getUrl();
-        if(ORIGIN.equals(uri.getScheme()+"://"+uri.getHost()) && "/assets/index.html".equals(uri.getPath())){
-          try{InputStream in=getAssets().open("index.html");return new WebResourceResponse("text/html","UTF-8",in);}catch(IOException e){return null;}
+        if(ORIGIN.equals(uri.getScheme()+"://"+uri.getHost())){
+          final String name;
+          final String mime;
+          if("/assets/index.html".equals(uri.getPath())){name="index.html";mime="text/html";}
+          else if("/assets/hand-worker.js".equals(uri.getPath())){name="hand-worker.js";mime="application/javascript";}
+          else return super.shouldInterceptRequest(view,request);
+          try{
+            InputStream in=getAssets().open(name);
+            return new WebResourceResponse(mime,"UTF-8",in);
+          }catch(IOException e){return null;}
         }
         return super.shouldInterceptRequest(view,request);
       }
