@@ -710,14 +710,7 @@ go.onclick=async()=>{
     v.addEventListener('resize',()=>{if(v.videoWidth!==CW||v.videoHeight!==CH)applyVideoSize()});
     try{navigator.wakeLock&&navigator.wakeLock.request('screen')}catch(e){}
     requestAnimationFrame(render);
-    msg.textContent='Carregando detector (alguns segundos)...';
-    let det;
-    try{det=await initWorkerHands()}
-    catch(e){
-      console.warn('Worker de mãos indisponível, usando modo compatível:',e);
-      try{det=await initLegacy()}catch(legacyError){console.warn(legacyError);det=await initTasks()}
-    }
-    msg.textContent='';
+    // A direção é iniciada imediatamente, independentemente de baixar a IA.
     // Agendas independentes: o reconhecimento de mãos não pula deliberadamente
     // quadros de orientação; ambas respeitam um orçamento de CPU adaptativo.
     let lastGyFrame=-1,lastHandFrame=-1,lastGyAt=0,lastHandAt=0,handEMA=0,gyroEMA=0;
@@ -732,6 +725,15 @@ go.onclick=async()=>{
       }
       if(started)queueFrame(motionLoop);
     };
+    queueFrame(motionLoop);
+    msg.textContent='Carregando detector (alguns segundos)...';
+    let det;
+    try{det=await initWorkerHands()}
+    catch(e){
+      console.warn('Worker de mãos indisponível, usando modo compatível:',e);
+      try{det=await initLegacy()}catch(legacyError){console.warn(legacyError);det=await initTasks()}
+    }
+    msg.textContent='';
     let recoveringHands=false;
     const handsLoop=async()=>{
       if(det.worker&&det.dead&&!recoveringHands){
@@ -752,7 +754,6 @@ go.onclick=async()=>{
       }
       if(started)queueFrame(handsLoop);
     };
-    queueFrame(motionLoop);
     queueFrame(handsLoop);
   }catch(e){msg.textContent='Erro: '+e.message;go.style.display='block'}
 };
