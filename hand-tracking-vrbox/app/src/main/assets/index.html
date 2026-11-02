@@ -19,13 +19,34 @@ canvas{pointer-events:none}
 button{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 24px);transform:translateX(-50%);z-index:5;background:#fff;color:#000;border:0;border-radius:999px;padding:14px 28px;font-size:16px;font-weight:600}
 #vrb{display:none;left:auto;right:16px;transform:none;padding:10px 14px;font-size:13px;background:rgba(255,255,255,.16);color:#fff;border:1px solid rgba(255,255,255,.45);backdrop-filter:blur(6px)}
 
-/* VR acelerado: a câmera é composta pelo navegador sem upload WebGL por frame. */
+/* VR acelerado: um vídeo/canvas por olho, com calibração óptica unificada. */
 #fastvr{position:fixed;inset:0;display:none;z-index:6;background:#000;overflow:hidden}
-#fastvr .eye{width:50%;height:100%;position:relative;overflow:hidden;flex:0 0 50%;border-radius:38% / 46%;contain:layout paint}
-#fastvr .eye video,#fastvr .eye canvas{position:absolute;width:100%;height:100%;object-fit:cover;inset:0;pointer-events:none}
-#fastvr .eye canvas{opacity:1}
-#fastvr .eye video{transform:scale(1.04)}
-#vrstats{position:fixed;z-index:7;top:8px;left:50%;transform:translateX(-50%);font:11px system-ui;color:#b8f5ff;text-shadow:0 1px 4px black;pointer-events:none}
+#fastvr .eye{width:50%;height:100%;position:relative;overflow:hidden;flex:0 0 50%;background:#000;contain:layout paint}
+#fastvr .vrscene{position:absolute;inset:0;width:100%;height:100%;transform-origin:50% 50%;will-change:transform;pointer-events:none;overflow:visible}
+#fastvr .vrscene video,#fastvr .vrscene canvas{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;pointer-events:none}
+#fastvr .vrscene canvas{opacity:1}
+#fastvr .divider{width:2px;position:absolute;left:calc(50% - 1px);top:0;bottom:0;background:rgba(0,0,0,.95);pointer-events:none}
+#fastvr .eye:after{content:'';position:absolute;inset:0;border-radius:43% / 48%;box-shadow:inset 0 0 25px 12px #000a;pointer-events:none}
+#fastvr .vr-target{display:none;position:absolute;left:50%;top:50%;width:22px;height:22px;border:2px solid #96f9ff;border-radius:50%;transform:translate(-50%,-50%);box-sizing:border-box;box-shadow:0 0 1px 2px #06131b}
+#fastvr .vr-target:before,#fastvr .vr-target:after{content:'';position:absolute;background:#96f9ff;left:50%;top:50%;transform:translate(-50%,-50%);opacity:.95}
+#fastvr .vr-target:before{width:30px;height:1px}
+#fastvr .vr-target:after{width:1px;height:30px}
+#fastvr.guides .vr-target{display:block}
+#fastvr .eye-label{display:none;position:absolute;bottom:15%;left:0;right:0;text-align:center;color:#d7ffff;font:12px system-ui;letter-spacing:1px;text-shadow:0 1px 3px #000}
+#fastvr.guides .eye-label{display:block}
+#vrstats{position:fixed;z-index:7;top:8px;left:50%;transform:translateX(-50%);font:11px system-ui;color:#b8f5ff;text-shadow:0 1px 4px black;pointer-events:none;white-space:nowrap}
+#vrsetup{display:none;left:16px;right:auto;transform:none;padding:11px 15px;font-size:13px;background:#15263be8;color:#fff;border:1px solid #a5cffb80}
+#vrpanel{display:none;position:fixed;z-index:12;inset:auto 10px 10px;max-width:460px;margin:auto;background:rgba(11,19,33,.98);border:1px solid #829fba;border-radius:16px;padding:16px 18px;color:#eff8ff;max-height:80vh;overflow:auto;touch-action:pan-y;box-shadow:0 14px 50px #0009}
+#vrpanel h2{font-size:18px;margin:0 0 8px}
+#vrpanel p{font-size:12px;line-height:1.5;color:#b6c7d9;margin:5px 0 12px}
+#vrpanel label{display:flex;justify-content:space-between;align-items:center;font-size:13px;margin:12px 0 6px}
+#vrpanel input[type=range]{display:block;width:100%;height:26px;accent-color:#78d0fd;touch-action:pan-x}
+#vrpanel input[type=checkbox]{width:18px;height:18px;accent-color:#78d0fd}
+#vrpanel .vr-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+#vrpanel button{position:static;transform:none;font-size:12px;background:#283f59;color:white;border:1px solid #6684a1;padding:11px 14px;border-radius:11px;flex:1;min-width:100px}
+#vrpanel .vr-primary{background:#b8e9fe;color:#071426;border-color:#b8e9fe}
+#vrquick{position:fixed;z-index:8;display:none;top:8%;right:8px;transform:none;padding:7px 9px;font-size:11px;color:#c8f6ff;background:#051927bd;border:1px solid #70a9c1ab;border-radius:9px}
+
 </style>
 </head>
 <body>
@@ -34,9 +55,27 @@ button{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 24p
 <canvas id="cp"></canvas><canvas id="cf"></canvas><canvas id="co"></canvas>
 </div>
 <canvas id="glc"></canvas><div id="fastvr"></div><div id="vrstats"></div>
+<button id="vrquick" type="button" aria-label="Ajustar VR">⚙</button>
+<div id="vrpanel" role="group" aria-label="Calibrar alinhamento do VR Box">
+  <h2>🥽 Ajustar VR Box</h2>
+  <p>Coloque uma imagem em frente a cada lente. Ajuste até as duas imagens parecerem uma só, sem forçar os olhos. Os valores ficam salvos neste celular.</p>
+  <label for="vreyeShift">Distância entre as imagens <output id="vrshiftValue">6%</output></label>
+  <input type="range" id="vreyeShift" min="-14" max="14" step="1" value="6">
+  <label for="vrzoom">Zoom dos olhos <output id="vrzoomValue">1,20×</output></label>
+  <input type="range" id="vrzoom" min="1.08" max="1.40" step=".02" value="1.20">
+  <label for="vrvertical">Alinhamento vertical <output id="vrverticalValue">0%</output></label>
+  <input type="range" id="vrvertical" min="-8" max="8" step="1" value="0">
+  <label for="vrguides">Mostrar marcadores de calibração <input type="checkbox" id="vrguides" checked></label>
+  <div class="vr-actions">
+    <button id="vrdefault" type="button">Restaurar padrão</button>
+    <button id="vrclose" type="button">Fechar</button>
+    <button id="vrtest" type="button" class="vr-primary">Ver no VR</button>
+  </div>
+</div>
 <div id="msg">Toque em Iniciar e permita a câmera</div>
 <button id="go">Iniciar</button>
 <button id="vrb">VR</button>
+<button id="vrsetup" type="button">⚙ Ajustar VR</button>
 <script>
 const $=id=>document.getElementById(id);
 const vrb=$('vrb'),glc=$('glc');
@@ -494,17 +533,75 @@ function drawVR(){
 }
 
 let fastStereo=false,fastEyes=[],vrFrames=0,vrLastFps=performance.now(),vrMeasured=0;
+const defaultVRCalibration={shift:6,zoom:1.20,vertical:0,guides:true};
+const vrCalibration={...defaultVRCalibration};
+try{
+  const saved=JSON.parse(localStorage.getItem('pocketspace.vr.calibration')||'null');
+  if(saved){
+    if(Number.isFinite(saved.shift))vrCalibration.shift=Math.max(-14,Math.min(14,saved.shift));
+    if(Number.isFinite(saved.zoom))vrCalibration.zoom=Math.max(1.08,Math.min(1.40,saved.zoom));
+    if(Number.isFinite(saved.vertical))vrCalibration.vertical=Math.max(-8,Math.min(8,saved.vertical));
+    if(typeof saved.guides==='boolean')vrCalibration.guides=saved.guides;
+  }
+}catch(e){console.warn('Preferencias de VR nao disponiveis:',e)}
+const clampVR=(n,min,max)=>Math.min(max,Math.max(min,n));
+function vrTransforms(index,settings=vrCalibration){
+  const shift=clampVR(settings.shift,-14,14),vertical=clampVR(settings.vertical,-8,8);
+  // Keep the image opaque across the whole viewport even when lens centers are offset.
+  const scale=clampVR(Math.max(settings.zoom,1.025+Math.max(2*Math.abs(shift),2*Math.abs(vertical))/100),1.08,1.45);
+  return {x:(index===0?shift:-shift),y:vertical,scale};
+}
+function updateVRCalibration(){
+  for(let i=0;i<fastEyes.length;i++){
+    const tr=vrTransforms(i);
+    fastEyes[i].scene.style.transform='translate3d('+tr.x+'%,'+tr.y+'%,0) scale('+tr.scale.toFixed(3)+')';
+  }
+  $('fastvr').classList.toggle('guides',vrCalibration.guides);
+  $('vreyeShift').value=String(vrCalibration.shift);
+  $('vrzoom').value=String(vrCalibration.zoom);
+  $('vrvertical').value=String(vrCalibration.vertical);
+  $('vrguides').checked=vrCalibration.guides;
+  $('vrshiftValue').textContent=vrCalibration.shift>0?'+'+vrCalibration.shift+'%':vrCalibration.shift+'%';
+  $('vrzoomValue').textContent=vrCalibration.zoom.toFixed(2).replace('.',',')+'×';
+  $('vrverticalValue').textContent=vrCalibration.vertical>0?'+'+vrCalibration.vertical+'%':vrCalibration.vertical+'%';
+  try{localStorage.setItem('pocketspace.vr.calibration',JSON.stringify(vrCalibration))}catch(e){}
+}
+function toggleVRPanel(show){
+  $('vrpanel').style.display=show?'block':'none';
+  $('vrquick').style.display=vr&&!show?'block':'none';
+  if(show)updateVRCalibration();
+}
+$('vrsetup').onclick=()=>toggleVRPanel(true);
+$('vrquick').onclick=()=>toggleVRPanel(true);
+$('vrclose').onclick=()=>toggleVRPanel(false);
+$('vrdefault').onclick=()=>{
+  Object.assign(vrCalibration,defaultVRCalibration);updateVRCalibration();
+};
+$('vrtest').onclick=async()=>{
+  toggleVRPanel(false);
+  if(!vr)await setVR(true);
+};
+for(const [id,key] of [['vreyeShift','shift'],['vrzoom','zoom'],['vrvertical','vertical']]){
+  $(id).addEventListener('input',ev=>{vrCalibration[key]=Number(ev.target.value);updateVRCalibration()});
+}
+$('vrguides').addEventListener('change',ev=>{vrCalibration.guides=!!ev.target.checked;updateVRCalibration()});
 function fastInit(){
   const root=$('fastvr');
   if(fastEyes.length)return;
   for(let i=0;i<2;i++){
     const eye=document.createElement('div');eye.className='eye';
+    const scene=document.createElement('div');scene.className='vrscene';
     const vid=document.createElement('video');vid.autoplay=true;vid.muted=true;vid.playsInline=true;
     const overlay=document.createElement('canvas');overlay.width=320;overlay.height=240;
-    eye.append(vid,overlay);root.append(eye);
+    const target=document.createElement('div');target.className='vr-target';
+    const label=document.createElement('span');label.className='eye-label';
+    label.textContent=i===0?'OLHO ESQUERDO':'OLHO DIREITO';
+    scene.append(vid,overlay,target);eye.append(scene,label);root.append(eye);
     vid.style.visibility=activeWorld==='passthrough'?'visible':'hidden';
-    fastEyes.push({vid,overlay,ctx:overlay.getContext('2d',{alpha:true})});
+    fastEyes.push({eye,scene,vid,overlay,ctx:overlay.getContext('2d',{alpha:true})});
   }
+  const divider=document.createElement('div');divider.className='divider';root.append(divider);
+  updateVRCalibration();
 }
 function setFastVR(on){
   const root=$('fastvr');
@@ -513,8 +610,15 @@ function setFastVR(on){
     for(const eye of fastEyes){
       if(eye.vid.srcObject!==v.srcObject){eye.vid.srcObject=v.srcObject;eye.vid.play().catch(()=>{});}
     }
+    updateVRCalibration();
     root.style.display='flex';fastStereo=true;
-  }else{root.style.display='none';fastStereo=false;$('vrstats').textContent='';}
+  }else{
+    root.style.display='none';fastStereo=false;$('vrstats').textContent='';
+    // Release duplicate video surfaces outside VR, keeping source camera alive.
+    for(const eye of fastEyes){
+      eye.vid.pause();eye.vid.srcObject=null;
+    }
+  }
 }
 function drawFastVR(){
   for(const eye of fastEyes){
@@ -537,6 +641,9 @@ function drawFastVR(){
 
 async function setVR(on){
   vr=on;glc.style.display='none';vrb.style.display=on?'none':'block';setFastVR(on);
+  $('vrsetup').style.display=on?'none':'block';
+  $('vrquick').style.display=on?'block':'none';
+  if(!on)toggleVRPanel(false);
   if(on){
     // O modo rápido usa composição de vídeo nativa; sem uploads de textura por quadro.
     try{await document.documentElement.requestFullscreen({navigationUI:'hide'})}catch(e){}
@@ -669,7 +776,7 @@ go.onclick=async()=>{
   try{
     v.srcObject=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:576,max:640},height:{ideal:432,max:480},frameRate:{ideal:30,max:30}},audio:false});
     await v.play();
-    applyVideoSize();started=true;initUI();vrb.style.display='block';
+    applyVideoSize();started=true;initUI();vrb.style.display='block';$('vrsetup').style.display='block';
     v.addEventListener('resize',()=>{if(v.videoWidth!==CW||v.videoHeight!==CH)applyVideoSize()});
     try{navigator.wakeLock&&navigator.wakeLock.request('screen')}catch(e){}
     requestAnimationFrame(render);
