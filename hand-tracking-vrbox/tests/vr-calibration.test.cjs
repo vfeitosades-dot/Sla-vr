@@ -3,35 +3,56 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const path=require('node:path');
 const vm=require('node:vm');
-const html=fs.readFileSync(path.join(__dirname,'../app/src/main/assets/index.html'),'utf8');
+const main=path.join(__dirname,'../app/src/main');
+const html=fs.readFileSync(path.join(main,'assets/index.html'),'utf8');
+const native=fs.readFileSync(path.join(main,'java/com/handtracking/vrbox/MainActivity.java'),'utf8');
 const start=html.indexOf('const clampVR=');
 const end=html.indexOf('function updateVRCalibration(){',start);
-assert(start>=0&&end>start,'funcoes de calibracao VR ausentes');
-const context={Math};
-vm.createContext(context);
-new vm.Script(html.slice(start,end),{filename:'vr-calibration-functions.js'}).runInContext(context);
-const settings={shift:6,vertical:2,zoom:1.20};
-const left=context.vrTransforms(0,settings);
-const right=context.vrTransforms(1,settings);
-assert.equal(left.x,6,'olho esquerdo move para o centro');
-assert.equal(right.x,-6,'olho direito move para o centro');
-assert.equal(left.y,right.y,'alinhamento vertical deve ser identico entre olhos');
-assert.equal(left.scale,right.scale,'olhos devem ter zoom igual');
-assert.equal(left.scale,1.20);
-const negative=context.vrTransforms(0,{shift:-8,vertical:0,zoom:1.10});
-assert.equal(negative.x,-8,'opcao afastar deve inverter a direcao');
-assert(negative.scale>=1.025+.16,'sem faixas pretas ao afastar');
-const bounded=context.vrTransforms(0,{shift:100,vertical:-90,zoom:100});
-assert.equal(bounded.x,14,'limite de deslocamento horizontal');
-assert.equal(bounded.y,-8,'limite de deslocamento vertical');
-assert(bounded.scale<=1.45,'zoom maximo');
-assert(html.includes('scene.append(vid,overlay,target)'),'video, camadas e alvo devem compartilhar o mesmo deslocamento');
-assert(html.includes("scene.style.transform='translate3d("),'transformacao 2D em CSS necessaria');
-assert(html.includes("defaultVRCalibration={shift:6,zoom:1.20,vertical:0,guides:false}"),'marcadores de calibracao desativados por padrao');
-assert(html.includes("localStorage.setItem('pocketspace.vr.calibration'"),'calibracao salva localmente');
-assert(html.includes("if(vr){if(fastStereo)drawFastVR();else drawVR();}"),'caminho VR acelerado deve ser preservado');
-assert(html.includes('#vrstats{display:none;'),'nao dividir texto mono entre lentes');
-assert(html.includes('function drawFastVR()'),'compositor de camera leve deve permanecer');
-assert(html.includes('function drawWin(W)'),'janelas originais devem permanecer');
-assert(html.includes('function onLandmarks(L)'),'rastreamento das maos deve permanecer');
-console.log('PASS: simetria binocular, limites de calibracao, zero faixas pretas, visao 60 Hz preservada');
+assert(start>=0&&end>start,'physical VR calibration functions missing');
+const ctx={Math,innerWidth:800,innerHeight:400};
+vm.createContext(ctx);
+new vm.Script(html.slice(start,end),{filename:'vr-calibration.js'}).runInContext(ctx);
+const phys={ipdMm:64,screenMm:156,shift:0,vertical:0,zoom:1.16};
+const expected=(50-100*64/156);
+const x=ctx.lensCenterShiftPercent(phys);
+assert(Math.abs(x-expected)<1e-8,'lens distance must be computed from real screen width');
+const left=ctx.vrTransforms(0,phys),right=ctx.vrTransforms(1,phys);
+assert(Math.abs(left.x-expected)<.001);
+assert(Math.abs(right.x+expected)<.001,'eyes must move symmetrically inward');
+assert.equal(left.y,right.y);
+assert.equal(left.scale,right.scale);
+const mmInEye=156/2;
+const centerSeparation=mmInEye-(left.x/100*mmInEye+Math.abs(right.x)/100*mmInEye);
+assert(Math.abs(centerSeparation-64)<1e-8,'screen optical centers must be 64 mm apart');
+const far={...phys,ipdMm:72};
+assert(ctx.vrTransforms(0,far).x<left.x,'increased IPD must move images apart');
+const near={...phys,ipdMm:58};
+assert(ctx.vrTransforms(0,near).x>left.x,'smaller IPD must move images closer');
+const fine={...phys,shift:3};
+assert(ctx.vrTransforms(0,fine).x>left.x,'fine calibration should move lenses symmetrically');
+const high={...phys,vertical:4},up=ctx.vrTransforms(0,high);
+assert(up.y>0,'vertical offset in mm should be converted to CSS screen percentage');
+const bounds=ctx.vrTransforms(0,{ipdMm:100,screenMm:100,shift:100,vertical:100,zoom:100});
+assert(Number.isFinite(bounds.x)&&Number.isFinite(bounds.y));
+assert(bounds.scale<=1.65);
+for(const fragment of [
+ 'pocketspace.vr.optics.v2','function detectPhysicalScreen(){',
+ "VRNative.getDisplayInfo()","VRNative.setVrMode(on)",
+ "function setCalibrationSession(on){","window.onVRVolumeAdjust=delta=>",
+ "VRNative.setVrCalibrationActive(vrCalibrationSession)",
+ "scene.append(vid,overlay,target)","scene.style.transform='translate3d(",
+ "defaultVRCalibration={ipdMm:64,screenMm:156,shift:0,zoom:1.16,vertical:0,guides:false,eyeMode:'both'}",
+ "if(vr){if(fastStereo)drawFastVR();else drawVR();}",
+ "function drawFastVR()","function onLandmarks(L)","function drawWin(W)"
+])assert(html.includes(fragment),'feature missing: '+fragment);
+for(const fragment of [
+ '@JavascriptInterface public String getDisplayInfo()',
+ 'getRealMetrics(metrics)',
+ '@JavascriptInterface public void setVrCalibrationActive(boolean active)',
+ '@JavascriptInterface public void setVrMode(boolean on)',
+ 'SCREEN_ORIENTATION_LANDSCAPE',
+ 'vrCalibrationActive',
+ 'KeyEvent.KEYCODE_VOLUME_UP',
+ 'KeyEvent.KEYCODE_VOLUME_DOWN'
+])assert(native.includes(fragment),'native VR configuration missing: '+fragment);
+console.log('PASS: optical centers in mm, IPD control direction, symmetric shift, safe bounds, native landscape and volume calibration');
