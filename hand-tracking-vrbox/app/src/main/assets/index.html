@@ -356,7 +356,7 @@ function prepareFastStereo(){
   if(fastVREyes.length)return;
   for(let eye=0;eye<2;eye++){
     const clip=document.createElement('div');clip.className='eye';
-    const video=document.createElement('video');video.autoplay=true;video.muted=true;
+    const video=eye===0?v:document.createElement('video');video.autoplay=true;video.muted=true;
     video.playsInline=true;video.setAttribute('playsinline','');video.setAttribute('muted','');
     const overlay=document.createElement('canvas'),ctx=overlay.getContext('2d',{alpha:true});
     if(!ctx)throw new Error('Canvas VR indisponível');
@@ -371,7 +371,7 @@ function setFastStereo(enabled){
   if(enabled){
     prepareFastStereo();
     for(const eye of fastVREyes){
-      if(eye.video.srcObject!==v.srcObject)eye.video.srcObject=v.srcObject;
+      if(eye.video!==v&&eye.video.srcObject!==v.srcObject)eye.video.srcObject=v.srcObject;
       // A captura única não é reiniciada ao entrar no VR Box.
       eye.video.play().catch(()=>{});
     }
@@ -382,7 +382,9 @@ function setFastStereo(enabled){
   }else{
     fastVRActive=false;
     fastvr.style.display='none';stage.style.visibility='';
-    for(const eye of fastVREyes){eye.video.pause();eye.video.srcObject=null}
+    for(const eye of fastVREyes)if(eye.video!==v){eye.video.pause();eye.video.srcObject=null}
+    // Source video retains the requestVideoFrameCallback stream when leaving VR.
+    if(v.parentElement!==stage)stage.insertBefore(v,stage.firstChild);
   }
 }
 function updateFastOverlaySize(){
