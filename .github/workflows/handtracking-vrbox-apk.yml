@@ -47,6 +47,8 @@ jobs:
           assert(!html.includes('expo-vision-camera-v4-mediapipe'),'URL de modelo antigo');
           console.log('Janelas, maos, direcao, navegador, galeria e VR rapido verificados');
           NODE
+      - name: Testar alinhamento dos dois olhos
+        run: node hand-tracking-vrbox/tests/vr-calibration.test.cjs
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -81,6 +83,6 @@ jobs:
         with:
           tag_name: handtracking-vrbox-auto
           name: Hand Tracking VR Box - APK automatico
-          body: 'Pocket Space 2.2: atualizado com o HTML (12) enviado pelo usuario. Interface com multiplas janelas, biblioteca, navegador integrado, galeria, teclado e dock. Modelo oficial de maos, pinca estabilizada, direcao optica otimizada e VR estereo rapido com composicao nativa. APK experimental: 60 FPS nao garantidos e camera ate 30 FPS. Alguns sites bloqueiam iframes.'
+          body: 'Pocket Space 2.3: corrigido problema de imagem dupla no VR Box com calibracao binocular personalizavel (separacao, zoom e alinhamento vertical), marcador optico opcional e ajustes salvos. Texto mono removido do meio das lentes. Modo VR acelerado e apps, maos, mundos e navegador preservados. O telefone fornece uma unica camera, portanto a imagem e duplicada para visualizacao binocular, sem profundidade estereoscopica real. 60 FPS e meta, nao garantia.'
           files: HandTrackingVRBox.apk
           overwrite_files: true
