@@ -59,7 +59,7 @@ const layout={
   console,Math
 };
 vm.createContext(layout);
-vm.runInContext(section('let fastVRActive=false,fastVREyes=[];','function makeTexture('),layout);
+vm.runInContext(section('let fastVRActive=false,fastVREyes=','function makeTexture('),layout);
 layout.setFastStereo(true);
 const eyes=vm.runInContext('fastVREyes',layout);
 assert.equal(eyes.length,2);
