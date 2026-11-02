@@ -11,6 +11,15 @@ html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font-family:
 video,canvas{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 #cf{opacity:.10}#co{opacity:.95}
 #glc{position:fixed;inset:0;width:100%;height:100%;display:none;z-index:6;background:#000}
+/* Camera stream is composed by Android/Chromium instead of gl.texSubImage2D. */
+#fastvr{position:fixed;inset:0;display:none;z-index:6;background:#000;overflow:hidden}
+#fastvr .eye{width:50%;height:100%;position:relative;overflow:hidden;flex:0 0 50%;background:#000;border-radius:44% / 48%;contain:layout paint}
+#fastvr .eye video,#fastvr .eye canvas{position:absolute;width:100%;height:100%;left:0;top:0;object-fit:cover;transform:none;pointer-events:none}
+#fastvr .eye video{z-index:1}
+#fastvr .eye canvas{z-index:2}
+#fastvr .divider{position:absolute;left:calc(50% - 1px);top:0;bottom:0;width:2px;background:#000;z-index:3}
+#fastvr .stats{position:absolute;left:5%;top:5%;z-index:4;font:11px/1.2 system-ui,sans-serif;color:#d2ffdf;background:#001c1390;padding:4px 6px;border-radius:6px;pointer-events:none}
+
 #vrb{display:none;left:auto;right:16px;transform:none;padding:10px 14px;font-size:13px;background:rgba(255,255,255,.16);color:#fff;border:1px solid rgba(255,255,255,.45);backdrop-filter:blur(6px)}
 #msg{position:fixed;left:0;right:0;top:calc(env(safe-area-inset-top,0px) + 12px);text-align:center;font-size:14px;z-index:5;text-shadow:0 1px 4px #000}
 button{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 24px);transform:translateX(-50%);z-index:5;background:#fff;color:#000;border:0;border-radius:999px;padding:14px 28px;font-size:16px;font-weight:600}
@@ -21,13 +30,14 @@ button{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 24p
 <video id="v" playsinline muted></video>
 <canvas id="cp"></canvas><canvas id="cf"></canvas><canvas id="co"></canvas>
 </div>
+<div id="fastvr" aria-label="Imagem estéreo para VR Box"></div>
 <canvas id="glc"></canvas>
 <div id="msg">Toque em Iniciar e permita a câmera</div>
 <button id="go">Iniciar</button>
 <button id="vrb">🥽 Modo VR Box</button>
 <script>
 const $=id=>document.getElementById(id);
-const vrb=$('vrb'),glc=$('glc');
+const vrb=$('vrb'),glc=$('glc'),fastvr=$('fastvr'),stage=$('stage');
 const v=$('v'),cp=$('cp'),cf=$('cf'),co=$('co'),msg=$('msg'),go=$('go');
 const xp=cp.getContext('2d',{alpha:true}),xf=cf.getContext('2d',{alpha:true}),xo=co.getContext('2d',{alpha:true});
 let CW=640,CH=480;let R=.9; // mesma composição visual, menos pixels por quadro
@@ -330,6 +340,62 @@ function makeTexture(unit){
   gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,1,1,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array([0,0,0,255]));
   return tex;
 }
+// Modo VR de baixa latência: não faz uploads do vídeo para WebGL.
+// As duas vistas usam o MESMO MediaStream, com composição nativa acelerada.
+let fastVRActive=false,fastVREyes=[],fastVROverlayW=0,fastVROverlayH=0;
+let fastFpsIndicatorAt=0;
+function prepareFastStereo(){
+  if(fastVREyes.length)return;
+  for(let eye=0;eye<2;eye++){
+    const clip=document.createElement('div');clip.className='eye';
+    const video=document.createElement('video');video.autoplay=true;video.muted=true;
+    video.playsInline=true;video.setAttribute('playsinline','');video.setAttribute('muted','');
+    const overlay=document.createElement('canvas'),ctx=overlay.getContext('2d',{alpha:true});
+    if(!ctx)throw new Error('Canvas VR indisponível');
+    const stats=document.createElement('span');stats.className='stats';
+    stats.textContent='VR iniciado';
+    clip.append(video,overlay,stats);fastvr.appendChild(clip);
+    fastVREyes.push({video,overlay,ctx,stats});
+  }
+  const divider=document.createElement('div');divider.className='divider';fastvr.appendChild(divider);
+}
+function setFastStereo(enabled){
+  if(enabled){
+    prepareFastStereo();
+    for(const eye of fastVREyes){
+      if(eye.video.srcObject!==v.srcObject)eye.video.srcObject=v.srcObject;
+      // A captura única não é reiniciada ao entrar no VR Box.
+      eye.video.play().catch(()=>{});
+    }
+    fastVRActive=true;
+    fastvr.style.display='flex';glc.style.display='none';
+    stage.style.visibility='hidden';
+    updateFastOverlaySize();
+  }else{
+    fastVRActive=false;
+    fastvr.style.display='none';stage.style.visibility='';
+    for(const eye of fastVREyes){eye.video.pause();eye.video.srcObject=null}
+  }
+}
+function updateFastOverlaySize(){
+  if(!fastVREyes.length)return;
+  const w=cp.width,h=cp.height;
+  if(w===fastVROverlayW&&h===fastVROverlayH)return;
+  fastVROverlayW=w;fastVROverlayH=h;
+  for(const eye of fastVREyes){eye.overlay.width=w;eye.overlay.height=h}
+}
+function renderFastStereo(){
+  updateFastOverlaySize();
+  // CPU canvas pequeno apenas para painéis e mãos. O vídeo não passa por canvas.
+  for(const eye of fastVREyes){
+    eye.ctx.clearRect(0,0,eye.overlay.width,eye.overlay.height);
+    eye.ctx.drawImage(cp,0,0);
+  }
+}
+function showVRStats(){
+  const label='VR '+perfInfo.drawFPS+' FPS · mãos '+perfInfo.handsFPS+' Hz';
+  for(const eye of fastVREyes)if(eye.stats.textContent!==label)eye.stats.textContent=label;
+}
 function initGL(){
   if(gl)return;
   gl=glc.getContext('webgl',{alpha:false,antialias:false,depth:false,stencil:false,
@@ -416,12 +482,15 @@ function drawVR(){
   gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
 }
 async function setVR(on){
-  vr=on;R=on?.86:1;for(const c of[cp,cf,co]){c.width=Math.round(CW*R);c.height=Math.round(CH*R)};glc.style.display=on?'block':'none';vrb.style.display=on?'none':'block';
+  vr=on;R=on?.70:1;
+  for(const c of[cp,cf,co]){c.width=Math.round(CW*R);c.height=Math.round(CH*R)}
+  vrb.style.display=on?'none':'block';
+  if(on)setFastStereo(true);else setFastStereo(false);
   if(on){
-    initGL();sizeVR();
+    if(!fastVRActive){initGL();sizeVR();}
     try{await document.documentElement.requestFullscreen({navigationUI:'hide'})}catch(e){}
     try{await screen.orientation.lock('landscape')}catch(e){}
-    sizeVR();
+    if(!fastVRActive)sizeVR();
   }else{
     msg.textContent='';
     try{screen.orientation.unlock()}catch(e){}
@@ -448,9 +517,10 @@ function render(now){
     perfInfo.trackingFPS=Math.round(gyroCount/seconds);
     perfInfo.handsFPS=Math.round(handCount/seconds);
     monitorFrames=0;gyroCount=0;handCount=0;monitorAt=now;
+    if(vr&&fastVRActive)showVRStats();
     // Dynamic VR resolution only when GPU/UI is the bottleneck; avoid
     // oscillating resolution when inference briefly stalls the main thread.
-    if(vr){
+    if(vr&&!fastVRActive){
       if(fps<49){vrSlowWindows++;vrFastWindows=0}
       else if(fps>58){vrFastWindows++;vrSlowWindows=0}
       else{vrSlowWindows=vrFastWindows=0}
@@ -517,7 +587,8 @@ function render(now){
     xp.globalAlpha=.10;xp.drawImage(cf,0,0);
     xp.globalAlpha=.95;xp.drawImage(co,0,0);
     xp.restore();
-    lastVRDraw=now;drawVR();
+    lastVRDraw=now;
+    if(fastVRActive)renderFastStereo();else drawVR();
   }
   requestAnimationFrame(render);
 }
