@@ -40,7 +40,15 @@ const $=id=>document.getElementById(id);
 const vrb=$('vrb'),glc=$('glc'),fastvr=$('fastvr'),stage=$('stage');
 const v=$('v'),cp=$('cp'),cf=$('cf'),co=$('co'),msg=$('msg'),go=$('go');
 const xp=cp.getContext('2d',{alpha:true}),xf=cf.getContext('2d',{alpha:true}),xo=co.getContext('2d',{alpha:true});
-let CW=640,CH=480;let R=.9; // mesma composição visual, menos pixels por quadro
+let CW=640,CH=480;let R=.9; // coordenadas de vídeo preservadas, rasterização reduzida
+function resizeOverlay(){
+  cp.width=Math.max(128,Math.round(CW*R));cp.height=Math.max(96,Math.round(CH*R));
+  if(typeof fastVRActive!=='undefined'&&fastVRActive){
+    cf.width=co.width=1;cf.height=co.height=1;
+  }else{
+    for(const canvas of[cf,co]){canvas.width=cp.width;canvas.height=cp.height}
+  }
+}
 
 /* ---------- filtro One Euro ---------- */
 class OE{constructor(mc,beta,dc=1){this.mc=mc;this.b=beta;this.dc=dc;this.x=null;this.dx=0;this.t=0}
@@ -304,7 +312,7 @@ function recenter(){gy.yaw=gy.pitch=gy.roll=0;panel.grab=null;panel.q=[1,0,0,0];
 /* ---------- tamanho da câmera / orientação ---------- */
 function applyVideoSize(){
   CW=v.videoWidth;CH=v.videoHeight;
-  for(const c of[cp,cf,co]){c.width=Math.round(CW*R);c.height=Math.round(CH*R)}
+  resizeOverlay();
   gyroInit();tracks=[];panel.init=false;panel.grab=null;
 }
 
@@ -483,9 +491,16 @@ function drawVR(){
 }
 async function setVR(on){
   vr=on;R=on?.70:1;
-  for(const c of[cp,cf,co]){c.width=Math.round(CW*R);c.height=Math.round(CH*R)}
   vrb.style.display=on?'none':'block';
-  if(on)setFastStereo(true);else setFastStereo(false);
+  if(on){
+    try{setFastStereo(true)}
+    catch(err){
+      console.warn('Composição direta indisponível; usando modo compatível:',err);
+      setFastStereo(false);
+      glc.style.display='block';
+    }
+  }else setFastStereo(false);
+  resizeOverlay();
   if(on){
     if(!fastVRActive){initGL();sizeVR();}
     try{await document.documentElement.requestFullscreen({navigationUI:'hide'})}catch(e){}
@@ -520,6 +535,18 @@ function render(now){
     if(vr&&fastVRActive)showVRStats();
     // Dynamic VR resolution only when GPU/UI is the bottleneck; avoid
     // oscillating resolution when inference briefly stalls the main thread.
+    if(vr&&fastVRActive){
+      if(fps<48){vrSlowWindows++;vrFastWindows=0}
+      else if(fps>58){vrFastWindows++;vrSlowWindows=0}
+      else{vrSlowWindows=0;vrFastWindows=0}
+      if(vrSlowWindows>=3&&R>.54){
+        R=Math.max(.54,Math.round((R-.06)*100)/100);
+        resizeOverlay();vrSlowWindows=0;
+      }else if(vrFastWindows>=5&&R<.74){
+        R=Math.min(.74,Math.round((R+.02)*100)/100);
+        resizeOverlay();vrFastWindows=0;
+      }
+    }
     if(vr&&!fastVRActive){
       if(fps<49){vrSlowWindows++;vrFastWindows=0}
       else if(fps>58){vrFastWindows++;vrSlowWindows=0}
@@ -531,8 +558,11 @@ function render(now){
   const t=now/1000,k=1-Math.exp(-dt*45),kq=1-Math.exp(-dt*20);
   tracks=tracks.filter(T=>t-T.seen<.42);
   if(panel.grab&&!tracks.includes(panel.grab.T))panel.grab=null;
-  xp.setTransform(R,0,0,R,0,0);xf.setTransform(R,0,0,R,0,0);xo.setTransform(R,0,0,R,0,0);
-  xp.clearRect(0,0,CW,CH);xf.clearRect(0,0,CW,CH);xo.clearRect(0,0,CW,CH);
+  xp.setTransform(R,0,0,R,0,0);xp.clearRect(0,0,CW,CH);
+  if(!fastVRActive){
+    xf.setTransform(R,0,0,R,0,0);xo.setTransform(R,0,0,R,0,0);
+    xf.clearRect(0,0,CW,CH);xo.clearRect(0,0,CW,CH);
+  }
   let hover=false;
 
   for(const T of tracks){
@@ -573,8 +603,9 @@ function render(now){
   xp.beginPath();xp.moveTo(bar[0][0],bar[0][1]);xp.lineTo(bar[1][0],bar[1][1]);xp.lineCap='round';xp.lineWidth=5;xp.strokeStyle='rgba(255,255,255,.7)';xp.stroke();
 
   drawArrow();
-  // Mantém o desenho original das mãos mesmo na GPU.
+  // O modo rápido desenha mãos diretamente no painel, sem 2 canvases extras.
   for(const T of tracks){
+    if(fastVRActive){paintVRHand(xp,T);continue}
     const ow=Math.max(1.5,T.s*.013);
     shape(xf,T.P,T.s,0,'#fff');
     shape(xo,T.P,T.s,ow,'#fff');
@@ -583,10 +614,12 @@ function render(now){
     if(T.pinch){xo.beginPath();xo.arc(T.pp[0],T.pp[1],T.s*.07,0,7);xo.fillStyle='#fff';xo.fill()}
   }
   if(vr){
-    xp.save();xp.setTransform(1,0,0,1,0,0);
-    xp.globalAlpha=.10;xp.drawImage(cf,0,0);
-    xp.globalAlpha=.95;xp.drawImage(co,0,0);
-    xp.restore();
+    if(!fastVRActive){
+      xp.save();xp.setTransform(1,0,0,1,0,0);
+      xp.globalAlpha=.10;xp.drawImage(cf,0,0);
+      xp.globalAlpha=.95;xp.drawImage(co,0,0);
+      xp.restore();
+    }
     lastVRDraw=now;
     if(fastVRActive)renderFastStereo();else drawVR();
   }
