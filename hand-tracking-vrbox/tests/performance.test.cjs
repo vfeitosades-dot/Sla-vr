@@ -19,12 +19,13 @@ new vm.Script(worker,{filename:'hand-worker.js'});
 // Main bottleneck: old VR path uploaded the camera to WebGL on every camera frame,
 // then copied 3 other canvases to WebGL. The fast path must bypass that compositor.
 assert(html.includes('function paintVRHand(g,T)'), 'VR hand renderer must exist (regression: hands disappeared)');
-const handRenderer={shapeCalls:0,shape(){this.shapeCalls++},Math};
+let shapeCalls=0;
+const handRenderer={shape(){shapeCalls++},Math};
 const handContext={save(){},restore(){},beginPath(){},arc(){},fill(){},stroke(){}};
 vm.createContext(handRenderer);
 vm.runInContext(section('function paintVRHand(g,T){','async function setVR(on){'),handRenderer);
 handRenderer.paintVRHand(handContext,{s:52,P:Array.from({length:22},()=>[12,12,0]),pinch:true,pp:[20,20]});
-assert.equal(handRenderer.shapeCalls,3,'must paint translucent fill, outer contour, and transparent center');
+assert.equal(shapeCalls,3,'must paint translucent fill, outer contour, and transparent center');
 assert(html.includes('id="fastvr"'),'direct video VR container missing');
 assert(html.includes("if(fastVRActive)renderFastStereo();else drawVR();"),'fast VR not selected');
 assert(html.includes("if(fastVRActive){paintVRHand(xp,T);continue}"),'extra hand canvases rendered in fast mode');
