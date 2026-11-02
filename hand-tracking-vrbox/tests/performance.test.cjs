@@ -39,8 +39,9 @@ const stream={id:'one camera stream'};
 const canvases=[];
 function el(tag){
   const element={tagName:tag,style:{},children:[],width:1,height:1,srcObject:null,
-    append(...children){this.children.push(...children)},
-    appendChild(child){this.children.push(child)},
+    append(...children){children.forEach(child=>{this.children.push(child);child.parentElement=this})},
+    appendChild(child){this.children.push(child);child.parentElement=this},
+    insertBefore(child){this.children.unshift(child);child.parentElement=this},
     setAttribute(){},
     play(){this.playing=true;return Promise.resolve()},
     pause(){this.playing=false}};
@@ -51,9 +52,10 @@ function el(tag){
   }
   return element;
 }
+const originalVideo=el('video');originalVideo.srcObject=stream;
 const layout={
   document:{createElement:el},fastvr:el('div'),stage:el('div'),glc:el('canvas'),
-  cp:{width:400,height:300},v:{srcObject:stream},perfInfo:{drawFPS:59,handsFPS:14},
+  cp:{width:400,height:300},v:originalVideo,perfInfo:{drawFPS:59,handsFPS:14},
   console,Math
 };
 vm.createContext(layout);
@@ -61,6 +63,7 @@ vm.runInContext(section('let fastVRActive=false,fastVREyes=[];','function makeTe
 layout.setFastStereo(true);
 const eyes=vm.runInContext('fastVREyes',layout);
 assert.equal(eyes.length,2);
+assert.equal(eyes[0].video,originalVideo,'VR must reuse source video to keep frame callbacks active');
 assert.equal(eyes[0].video.srcObject,stream);
 assert.equal(eyes[1].video.srcObject,stream);
 assert.equal(layout.fastvr.style.display,'flex');
@@ -74,7 +77,9 @@ assert.equal(eyes[1].overlay.height,300);
 layout.showVRStats();
 assert.match(eyes[0].stats.textContent,/59 FPS/);
 layout.setFastStereo(false);
-assert.equal(eyes[0].video.srcObject,null);
+assert.equal(eyes[0].video.srcObject,stream,'source camera stream must stay alive');
+assert.equal(originalVideo.parentElement,layout.stage,'source video must return to the normal stage');
+assert.equal(eyes[1].video.srcObject,null,'duplicate view must release stream on exit');
 assert.equal(layout.fastvr.style.display,'none');
 assert.equal(layout.stage.style.visibility,'');
 
