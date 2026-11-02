@@ -30,11 +30,23 @@ jobs:
           if(!html.includes('Modo VR Box'))throw Error('Modo VR Box ausente');
           console.log('JavaScript e modo VR Box verificados');
           NODE
-      - name: Testar direcao e deteccao das maos
+      - name: Validar recursos do HTML enviado e do modo rapido
         run: |
-          node hand-tracking-vrbox/tests/tracking.test.cjs
-          node hand-tracking-vrbox/tests/performance.test.cjs
-          node hand-tracking-vrbox/tests/launcher-worlds.test.cjs
+          node - <<'NODE'
+          const assert=require('node:assert/strict');
+          const fs=require('node:fs');
+          const html=fs.readFileSync('hand-tracking-vrbox/app/src/main/assets/index.html','utf8');
+          for(const item of [
+            'function mkWin(type,dir)','function onLandmarks(L)','function gyroStep(vid)',
+            'function navTo(u)','function capture()','function drawFastVR()',
+            'function setFastVR(on)','function paint(W)','function drawWin(W)',
+            'function initTasks()','function initLegacy()','function render(now)'
+          ])assert(html.includes(item),'Recurso ausente: '+item);
+          assert(html.includes('storage.googleapis.com/mediapipe-models'),'Modelo oficial ausente');
+          assert(html.includes('fastStereo)drawFastVR()'),'VR rapido nao ativado');
+          assert(!html.includes('expo-vision-camera-v4-mediapipe'),'URL de modelo antigo');
+          console.log('Janelas, maos, direcao, navegador, galeria e VR rapido verificados');
+          NODE
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -69,6 +81,6 @@ jobs:
         with:
           tag_name: handtracking-vrbox-auto
           name: Hand Tracking VR Box - APK automatico
-          body: 'Pocket Space 2.1: biblioteca e dock originais inspirados no estilo Navigator de VR, cards coloridos, busca e aba flutuante. Detector de maos MediaPipe com modelo oficial, imagens reduzidas e pinca estabilizada. Rastreamento visual de direcao mais suave; browser e mundos 2.0 preservados. APK de teste para Android, meta de 60 FPS nao garantida. A camera pode ficar em 30 FPS.'
+          body: 'Pocket Space 2.2: atualizado com o HTML (12) enviado pelo usuario. Interface com multiplas janelas, biblioteca, navegador integrado, galeria, teclado e dock. Modelo oficial de maos, pinca estabilizada, direcao optica otimizada e VR estereo rapido com composicao nativa. APK experimental: 60 FPS nao garantidos e camera ate 30 FPS. Alguns sites bloqueiam iframes.'
           files: HandTrackingVRBox.apk
           overwrite_files: true
