@@ -418,6 +418,12 @@ function updateWorldVisibility(){
   for(const eye of fastVREyes){
     eye.video.style.opacity=active?'0':'1';
     eye.worldLayer.style.visibility=active?'visible':'hidden';
+    // O segundo decodificador de vídeo não é necessário nos mundos virtuais.
+    // O vídeo principal permanece ativo para rastrear direção e mãos.
+    if(eye.video!==v){
+      if(active)eye.video.pause();
+      else eye.video.play().catch(()=>{});
+    }
   }
   lastWorldDraw=0;
 }
