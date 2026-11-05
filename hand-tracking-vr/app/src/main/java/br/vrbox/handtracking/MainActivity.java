@@ -1,6 +1,10 @@
 package br.vrbox.handtracking;
 
 import android.Manifest;
+import android.hardware.Sensor;
+import android.hardware.SensorEvent;
+import android.hardware.SensorEventListener;
+import android.hardware.SensorManager;
 import android.app.Activity;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
@@ -27,7 +31,7 @@ import android.net.Uri;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 
-public final class MainActivity extends Activity {
+public final class MainActivity extends Activity implements SensorEventListener {
     private static final int CAMERA_CODE = 401;
     private static final String HOST = "appassets.androidplatform.net";
     private WebView web;
@@ -36,9 +40,16 @@ public final class MainActivity extends Activity {
     private WebChromeClient.CustomViewCallback videoCallback;
     private PermissionRequest pendingCamera;
     private boolean vrActive = false;
+    private boolean immersive360 = false;
+    private SensorManager sensorManager;
+    private Sensor headSensor;
+    private long lastPoseAt = 0;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
+        sensorManager = (SensorManager) getSystemService(SENSOR_SERVICE);
+        headSensor = sensorManager.getDefaultSensor(Sensor.TYPE_GAME_ROTATION_VECTOR);
+        if (headSensor == null) headSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR);
         getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN |
                 WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON,
                 WindowManager.LayoutParams.FLAG_FULLSCREEN |
@@ -155,6 +166,23 @@ public final class MainActivity extends Activity {
                     down.recycle(); up.recycle();
                 });
             }
+            @JavascriptInterface public void pauseYouTube() {
+                runOnUiThread(() -> {
+                    if (youtubeWeb != null) youtubeWeb.evaluateJavascript(
+                        "document.querySelectorAll('video,audio').forEach(v=>v.pause())", null);
+                });
+            }
+            @JavascriptInterface public void setImmersive360(boolean enabled) {
+                runOnUiThread(() -> {
+                    immersive360 = enabled;
+                    setRequestedOrientation(enabled ? ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE :
+                        (vrActive ? ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE : ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED));
+                    if (enabled && headSensor != null) {
+                        lastPoseAt = 0;
+                        sensorManager.registerListener(MainActivity.this, headSensor, SensorManager.SENSOR_DELAY_GAME);
+                    } else sensorManager.unregisterListener(MainActivity.this);
+                });
+            }
             @JavascriptInterface public void setVR(boolean enable) {
                 runOnUiThread(() -> {
                     vrActive = enable;
@@ -225,12 +253,29 @@ public final class MainActivity extends Activity {
         }
         if (youtubePanel != null) { root.removeView(youtubePanel); youtubePanel = null; }
     }
+    @Override public void onSensorChanged(SensorEvent event) {
+        if (!immersive360 || web == null) return;
+        long now = SystemClock.uptimeMillis();
+        if (now - lastPoseAt < 30) return;
+        lastPoseAt = now;
+        float[] q = new float[4];
+        SensorManager.getQuaternionFromVector(q, event.values);
+        int angle = getWindowManager().getDefaultDisplay().getRotation() * 90;
+        String js = "window.update360Pose&&window.update360Pose(" +
+            q[0]+","+q[1]+","+q[2]+","+q[3]+","+angle+")";
+        web.evaluateJavascript(js, null);
+    }
+    @Override public void onAccuracyChanged(Sensor sensor, int accuracy) {}
     @Override protected void onPause() {
+        sensorManager.unregisterListener(this);
+        if (web != null) web.evaluateJavascript("if(typeof vv!=='undefined')vv.pause()", null);
         if (youtubeWeb != null) youtubeWeb.onPause();
         super.onPause();
     }
     @Override protected void onResume() {
         super.onResume();
+        if (immersive360 && headSensor != null) sensorManager.registerListener(this, headSensor, SensorManager.SENSOR_DELAY_GAME);
+        if (web != null) web.evaluateJavascript("if(typeof v360!=='undefined'&&v360.on)vv.play().catch(()=>{})", null);
         if (youtubeWeb != null) youtubeWeb.onResume();
     }
 
@@ -246,6 +291,7 @@ public final class MainActivity extends Activity {
         }
     }
     @Override public void onBackPressed() {
+        if (immersive360) { web.evaluateJavascript("exit360()", null); return; }
         if (videoPanel != null) { hideYouTubeVideo(); return; }
         if (youtubeWeb != null) {
             if (youtubeWeb.canGoBack()) youtubeWeb.goBack();
@@ -259,6 +305,7 @@ public final class MainActivity extends Activity {
         }
     }
     @Override protected void onDestroy() {
+        sensorManager.unregisterListener(this);
         closeYouTube();
         if (pendingCamera != null) { pendingCamera.deny(); pendingCamera = null; }
         if (web != null) {
