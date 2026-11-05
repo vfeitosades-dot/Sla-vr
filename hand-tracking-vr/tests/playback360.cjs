@@ -9,6 +9,9 @@ const assert = require('node:assert/strict');
   const browser = await chromium.launch({executablePath:process.env.CHROME_BIN || '/usr/bin/chromium',headless:true,args:['--no-sandbox','--enable-unsafe-swiftshader','--autoplay-policy=no-user-gesture-required']});
   try {
     const page = await browser.newPage({viewport:{width:960,height:540}});
+    page.on('requestfailed',r=>console.log('NETWORK',r.url(),r.failure()));
+    page.on('response',r=>{if(r.status()>=400)console.log('HTTP',r.status(),r.url())});
+    page.on('console',m=>console.log('BROWSER',m.type(),m.text()));
     const errors = [];
     page.on('pageerror',e => errors.push(e.message));
     await page.goto('http://127.0.0.1:'+server.address().port);
@@ -36,7 +39,7 @@ const assert = require('node:assert/strict');
         draw360();
         gl3.readPixels(0,0,g360.width,g360.height,gl3.RGBA,gl3.UNSIGNED_BYTE,pixels);
         let changed=0;for(let k=0;k<pixels.length;k+=64)if(Math.abs(pixels[k]-before[k])>20)changed++;
-        return {error:v360.error,left,right,changed,glError:gl3.getError(),stereo:v360.stereo,
+        return {mediaError:vv.error&&{code:vv.error.code,message:vv.error.message},error:v360.error,left,right,changed,glError:gl3.getError(),stereo:v360.stereo,
           exitButtons:bar360.querySelectorAll('button').length,exitVisible:getComputedStyle(bar360).display,
           width:vv.videoWidth,height:vv.videoHeight,on:v360.on,vr};
       });
