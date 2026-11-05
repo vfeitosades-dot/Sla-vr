@@ -292,8 +292,7 @@ function mapTick(W,dt){
 
 /* ---------- VÍDEO 360: player equirretangular em WebGL, guiado pelo sensor de direção ---------- */
 const CATALOG360=[
-  {title:'Playhouse · experiência 360',credit:'Demonstração pública Bitmovin',url:'https://bitmovin-a.akamaihd.net/content/playhouse-vr/progressive.mp4',lay:0},
-  {title:'Congo · natureza em 360',credit:'Demonstração pública Google VR',url:'https://storage.googleapis.com/vrview/examples/video/congo_2048.mp4',lay:1}
+  {title:'Congo · natureza em 360',credit:'Demonstração pública Google VR · estéreo',url:'https://raw.githubusercontent.com/googlearchive/vrview/master/examples/video/congo_2048.mp4',lay:1}
 ];
 const v360={name:'',lay:0,stereo:true,on:false,yaw:0,pit:0,ref:[1,0,0,0],url:null,pose:null,angle:null,session:0,error:'',uploaded:false};
 const vv=document.createElement('video');vv.crossOrigin='anonymous';vv.playsInline=true;vv.loop=true;vv.setAttribute('playsinline','');vv.preload='metadata';
