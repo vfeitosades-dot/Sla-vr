@@ -57,10 +57,11 @@ jobs:
           sha256sum HandTrackingVR-VRBox.apk
           python3 - <<'PY'
           import hashlib, zipfile
+          from pathlib import Path
           with zipfile.ZipFile('HandTrackingVR-VRBox.apk') as apk:
               actual = hashlib.sha256(apk.read('assets/index.html')).hexdigest()
-          assert actual == 'f13bd07b29efed14696ca30c22fe35fbc7264cae6e40a603ee90a3c51157ce35', actual
-          print('HTML original confirmado byte por byte no APK')
+          assert actual == hashlib.sha256(Path('hand-tracking-vr/app/src/main/assets/index.html').read_bytes()).hexdigest(), actual
+          print('HTML do projeto confirmado byte por byte no APK')
           PY
       - name: APK para baixar em Actions
         uses: actions/upload-artifact@v4
@@ -74,8 +75,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          TAG="hand-tracking-original-${GITHUB_SHA:0:12}"
+          TAG="hand-tracking-youtube-${GITHUB_SHA:0:12}"
           gh release create "$TAG" --target "$GITHUB_SHA" \
-            --title "Hand Tracking VR - HTML original" \
-            --notes "HTML original preservado byte por byte. SHA-256: f13bd07b29efed14696ca30c22fe35fbc7264cae6e40a603ee90a3c51157ce35. Requer internet para carregar o detector." --prerelease
+            --title "Hand Tracking VR - YouTube direto" \
+            --notes "Botao YouTube abre o site diretamente, sem pedir link. Requer internet." --prerelease
           gh release upload "$TAG" HandTrackingVR-VRBox.apk --clobber
