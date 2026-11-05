@@ -2,9 +2,11 @@ package br.vrbox.handtracking;
 
 import android.Manifest;
 import android.app.Activity;
-import android.content.Intent;
-import android.content.ActivityNotFoundException;
-import android.widget.Toast;
+import android.widget.FrameLayout;
+import android.widget.LinearLayout;
+import android.widget.Button;
+import android.view.ViewGroup;
+import android.graphics.Color;
 import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
 import android.os.Bundle;
@@ -27,6 +29,9 @@ public final class MainActivity extends Activity {
     private static final int CAMERA_CODE = 401;
     private static final String HOST = "appassets.androidplatform.net";
     private WebView web;
+    private FrameLayout root, youtubePanel, videoPanel;
+    private WebView youtubeWeb;
+    private WebChromeClient.CustomViewCallback videoCallback;
     private PermissionRequest pendingCamera;
     private boolean vrActive = false;
 
@@ -39,7 +44,9 @@ public final class MainActivity extends Activity {
         getWindow().getDecorView().setSystemUiVisibility(5894 |
                 View.SYSTEM_UI_FLAG_LAYOUT_STABLE | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
         web = new WebView(this);
-        setContentView(web);
+        root = new FrameLayout(this);
+        root.addView(web);
+        setContentView(root);
         WebSettings settings = web.getSettings();
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
@@ -96,15 +103,11 @@ public final class MainActivity extends Activity {
             }
         });
         web.addJavascriptInterface(new Object() {
+            @JavascriptInterface public void openYouTube() {
+                runOnUiThread(() -> showYouTube(false));
+            }
             @JavascriptInterface public void openYouTube360() {
-                runOnUiThread(() -> {
-                    Intent youtube = new Intent(Intent.ACTION_VIEW,
-                            Uri.parse("https://www.youtube.com/results?search_query=360+video"));
-                    try { startActivity(youtube); }
-                    catch (ActivityNotFoundException e) {
-                        Toast.makeText(MainActivity.this, "Instale o YouTube ou um navegador.", Toast.LENGTH_LONG).show();
-                    }
-                });
+                runOnUiThread(() -> showYouTube(true));
             }
             @JavascriptInterface public void setVR(boolean enable) {
                 runOnUiThread(() -> {
@@ -117,6 +120,88 @@ public final class MainActivity extends Activity {
         }, "Android");
         web.loadUrl("https://" + HOST + "/index.html");
     }
+
+    private void showYouTube(boolean search360) {
+        if (youtubePanel != null) closeYouTube();
+        youtubePanel = new FrameLayout(this);
+        youtubePanel.setBackgroundColor(Color.BLACK);
+        LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout toolbar = new LinearLayout(this);
+        Button back = new Button(this);
+        back.setText("Voltar");
+        back.setOnClickListener(v -> {
+            if (youtubeWeb != null && youtubeWeb.canGoBack()) youtubeWeb.goBack();
+            else closeYouTube();
+        });
+        Button close = new Button(this);
+        close.setText("Fechar YouTube");
+        close.setOnClickListener(v -> closeYouTube());
+        toolbar.addView(back);
+        toolbar.addView(close);
+        layout.addView(toolbar);
+        youtubeWeb = new WebView(this);
+        WebSettings ys = youtubeWeb.getSettings();
+        ys.setJavaScriptEnabled(true);
+        ys.setDomStorageEnabled(true);
+        ys.setMediaPlaybackRequiresUserGesture(true);
+        ys.setAllowFileAccess(false);
+        ys.setAllowContentAccess(false);
+        ys.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
+        youtubeWeb.setWebViewClient(new WebViewClient() {
+            @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest req) {
+                // Keep HTTPS navigation inside this isolated WebView.
+                return !"https".equalsIgnoreCase(req.getUrl().getScheme());
+            }
+        });
+        youtubeWeb.setWebChromeClient(new WebChromeClient() {
+            @Override public void onPermissionRequest(PermissionRequest req) { req.deny(); }
+            @Override public void onShowCustomView(View view, CustomViewCallback callback) {
+                if (videoPanel != null) { callback.onCustomViewHidden(); return; }
+                videoCallback = callback;
+                videoPanel = new FrameLayout(MainActivity.this);
+                videoPanel.setBackgroundColor(Color.BLACK);
+                videoPanel.addView(view, new FrameLayout.LayoutParams(-1, -1));
+                root.addView(videoPanel, new FrameLayout.LayoutParams(-1, -1));
+            }
+            @Override public void onHideCustomView() { hideYouTubeVideo(); }
+        });
+        layout.addView(youtubeWeb, new LinearLayout.LayoutParams(-1, 0, 1));
+        youtubePanel.addView(layout, new FrameLayout.LayoutParams(-1, -1));
+        root.addView(youtubePanel, new FrameLayout.LayoutParams(-1, -1));
+        youtubeWeb.loadUrl(search360
+                ? "https://m.youtube.com/results?search_query=360+video"
+                : "https://m.youtube.com/");
+    }
+    private void hideYouTubeVideo() {
+        if (videoPanel == null) return;
+        root.removeView(videoPanel);
+        videoPanel.removeAllViews();
+        videoPanel = null;
+        WebChromeClient.CustomViewCallback callback = videoCallback;
+        videoCallback = null;
+        if (callback != null) callback.onCustomViewHidden();
+    }
+    private void closeYouTube() {
+        hideYouTubeVideo();
+        if (youtubeWeb != null) {
+            youtubeWeb.stopLoading();
+            youtubeWeb.loadUrl("about:blank");
+            ((ViewGroup) youtubeWeb.getParent()).removeView(youtubeWeb);
+            youtubeWeb.destroy();
+            youtubeWeb = null;
+        }
+        if (youtubePanel != null) { root.removeView(youtubePanel); youtubePanel = null; }
+    }
+    @Override protected void onPause() {
+        if (youtubeWeb != null) youtubeWeb.onPause();
+        super.onPause();
+    }
+    @Override protected void onResume() {
+        super.onResume();
+        if (youtubeWeb != null) youtubeWeb.onResume();
+    }
+
     @Override public void onRequestPermissionsResult(int requestCode, String[] permissions,
                                                        int[] grants) {
         super.onRequestPermissionsResult(requestCode, permissions, grants);
@@ -129,6 +214,12 @@ public final class MainActivity extends Activity {
         }
     }
     @Override public void onBackPressed() {
+        if (videoPanel != null) { hideYouTubeVideo(); return; }
+        if (youtubeWeb != null) {
+            if (youtubeWeb.canGoBack()) youtubeWeb.goBack();
+            else closeYouTube();
+            return;
+        }
         if (vrActive) {
             web.evaluateJavascript("window.HandTrackingApp&&window.HandTrackingApp.exitVR()", null);
         } else {
@@ -136,6 +227,7 @@ public final class MainActivity extends Activity {
         }
     }
     @Override protected void onDestroy() {
+        closeYouTube();
         if (pendingCamera != null) { pendingCamera.deny(); pendingCamera = null; }
         if (web != null) {
             web.loadUrl("about:blank");
