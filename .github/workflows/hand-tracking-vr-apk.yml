@@ -75,8 +75,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          TAG="hand-tracking-inapp-${GITHUB_SHA:0:12}"
+          TAG="hand-tracking-floating-${GITHUB_SHA:0:12}"
           gh release create "$TAG" --target "$GITHUB_SHA" \
-            --title "Hand Tracking VR - YouTube dentro do app" \
-            --notes "YouTube e YouTube 360 abrem dentro do app, com voltar, fechar e video em tela cheia." --prerelease
+            --title "Hand Tracking VR - YouTube no painel flutuante" \
+            --notes "YouTube e busca de videos 360 no painel flutuante sobre a camera. Navegador interno acompanha posicao, escala e rotacao do painel." --prerelease
           gh release upload "$TAG" HandTrackingVR-VRBox.apk --clobber
