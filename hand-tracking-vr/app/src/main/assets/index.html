@@ -205,27 +205,28 @@ function saveImg(c){c.toBlob(b=>{const a=document.createElement('a');a.href=URL.
 function setFov(d){FOVL=Math.max(50,Math.min(95,d));try{localStorage.setItem('fov',FOVL)}catch(e){}gyroGeom()}
 
 // navegador
-function openYouTube(){
-  if(window.Android&&typeof Android.openYouTube==='function'){Android.openYouTube();return}
-  navTo('https://www.youtube.com/');
+function openYouTube(){navTo('https://m.youtube.com/');openApp('web')}
+function openYouTube360(){navTo('https://m.youtube.com/results?search_query=360+video');openApp('web')}
+function youtubeUrl(u){return /^https:\/\/(?:www\.|m\.)?youtube\.com(?:\/|$)/i.test(u)}
+function showBrowserUrl(){
+  br.nativeYoutube=!!(youtubeUrl(br.url)&&window.Android&&typeof Android.loadYouTube==='function');
+  if(window.Android&&Android.closeYouTubePanel)Android.closeYouTubePanel();
+  fr.src=br.nativeYoutube?'about:blank':srcOf(br.url);
+  if(br.nativeYoutube)Android.loadYouTube(br.url);
 }
-function openYouTube360(){
-  if(window.Android&&typeof Android.openYouTube360==='function'){Android.openYouTube360();return}
-  window.open('https://www.youtube.com/results?search_query=360+video','_blank','noopener,noreferrer');
-}
+function youtubeHandTap(x,y){if(br.nativeYoutube&&window.Android&&Android.youtubeTap)Android.youtubeTap(x-20,y-78)}
 const ytId=u=>{const m=u.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?(?:.*&)?v=|embed\/|shorts\/|live\/))([\w-]{11})/);return m&&m[1]};
 const srcOf=u=>{const y=ytId(u);return y?`https://www.youtube-nocookie.com/embed/${y}?playsinline=1&rel=0`:u};
 function pasteClip(){
   try{navigator.clipboard.readText().then(s=>{br.input=(s||'').trim();toast(br.input?'Link colado':'Área de transferência vazia')}).catch(()=>toast('Não consegui ler a área de transferência'))}catch(e){toast('Colar indisponível aqui')}}
 function navTo(u){
   u=(u||'').trim();if(!u)return;
-  if(/^https:\/\/(?:www\.|m\.)?youtube\.com(?:\/|$)/i.test(u)&&window.Android&&typeof Android.openYouTube==='function'){Android.openYouTube();return;}
   if(!/^https?:\/\//i.test(u))u=(/\s/.test(u)||!u.includes('.'))?'https://pt.wikipedia.org/w/index.php?search='+encodeURIComponent(u):'https://'+u;
-  br.hist=br.hist.slice(0,br.i+1);br.hist.push(u);br.i++;br.url=br.input=u;fr.src=srcOf(u);
+  br.hist=br.hist.slice(0,br.i+1);br.hist.push(u);br.i++;br.url=br.input=u;showBrowserUrl();
 }
-function navGo(d){const i=br.i+d;if(i<0||i>=br.hist.length)return;br.i=i;br.url=br.input=br.hist[i];fr.src=srcOf(br.url)}
-function navReload(){if(!br.url)return;const u=br.url;fr.src='about:blank';setTimeout(()=>{fr.src=srcOf(u)},40)}
-function navHome(){br.url='';br.input='';fr.src='about:blank'}
+function navGo(d){if(br.nativeYoutube&&window.Android){Android.youtubeNavigate(d);return}const i=br.i+d;if(i<0||i>=br.hist.length)return;br.i=i;br.url=br.input=br.hist[i];fr.src=srcOf(br.url)}
+function navReload(){if(br.nativeYoutube&&window.Android){Android.youtubeNavigate(0);return}if(!br.url)return;const u=br.url;fr.src='about:blank';setTimeout(()=>{fr.src=srcOf(u)},40)}
+function navHome(){br.nativeYoutube=false;if(window.Android&&Android.closeYouTubePanel)Android.closeYouTubePanel();br.url='';br.input='';fr.src='about:blank'}
 function typeKey(k){
   if(k==='⌫')br.input=br.input.slice(0,-1);
   else if(k==='⇧')S.shift=!S.shift;
@@ -481,7 +482,7 @@ function paint(W){
     wgt('youtube360',80,166,dw-160,64,openYouTube360,32);
     txt(g,'Abrir YouTube 360',dw/2,199,23,600,'#fff','center');
     txt(g,'Pesquise e reproduza no próprio YouTube.',dw/2,282,18,400,'rgba(255,255,255,.7)','center');
-    txt(g,'Abre o YouTube dentro deste app.',dw/2,316,16,400,'rgba(255,255,255,.55)','center');
+    txt(g,'Abre no painel flutuante sobre a câmera.',dw/2,316,16,400,'rgba(255,255,255,.55)','center');
   }else if(t==='kbd'){
     bg(g,dw,dh,32);closeBtn();
     // barra de texto
@@ -578,7 +579,19 @@ function toScreen(x,y){const s=Math.max(HW/CW,HH/CH);return[(HW-CW*s)/2+x*s,(HH-
 function fromScreen(x,y){const s=Math.max(HW/CW,HH/CH);return[(x-(HW-CW*s)/2)/s,(y-(HH-CH*s)/2)/s]}
 function updateFrame(){
   const W=WINS.find(w=>w.type==='web'),show=W&&br.url&&!vr&&W.front&&Math.hypot(W.qu[1],W.qu[2])<.05;
-  if(!show){if(fr.style.display!=='none')fr.style.display='none';return}
+  const native=!!br.nativeYoutube;
+  if(window.Android&&Android.positionYouTube){
+    const now=performance.now();
+    if(!updateFrame.last||now-updateFrame.last>33){
+      updateFrame.last=now;
+      if(show&&native){
+        const k=kk(W),sc=Math.max(HW/CW,HH/CH),[sx,sy]=toScreen(W.x,W.y),roll=2*Math.atan2(W.qu[3],W.qu[0]),z=k*sc;
+        const ox=20-W.dw/2,oy=78-W.dh/2;
+        Android.positionYouTube(true,sx+z*(Math.cos(roll)*ox-Math.sin(roll)*oy),sy+z*(Math.sin(roll)*ox+Math.cos(roll)*oy),z,roll,HW);
+      }else Android.positionYouTube(false,0,0,1,0,HW);
+    }
+  }
+  if(!show||native){if(fr.style.display!=='none')fr.style.display='none';return}
   const k=kk(W),sc=Math.max(HW/CW,HH/CH),[sx,sy]=toScreen(W.x,W.y),roll=2*Math.atan2(W.qu[3],W.qu[0]);
   const tr=`translate(${sx}px,${sy}px) rotate(${roll}rad) scale(${k*sc}) translate(${20-W.dw/2}px,${78-W.dh/2}px)`;
   if(fr._t!==tr){fr._t=tr;fr.style.transform=tr}
@@ -900,6 +913,7 @@ function render(now){
     if(!T.pinch&&h&&h.wg)h.W.hv=h.wg.id;
     if(T.pinch&&!T.was){
       if(h&&h.W.type==='map'&&!h.wg&&!mp.att&&Math.hypot(h.lx-mp.x,h.ly-mp.y)<mp.r+30){mp.att=T;mp.vx=mp.vy=0}
+      else if(h&&h.W.type==='web'&&br.nativeYoutube&&!h.wg&&h.lx>=20&&h.lx<=620&&h.ly>=78&&h.ly<=374){youtubeHandTap(h.lx,h.ly)}
       else if(h&&h.wg){T.press={W:h.W,id:h.wg.id,t:now,act:h.wg.act};h.W.pr=h.wg.id}
       else if(h&&!h.W.fixed&&!grab&&!(h.W.type==='game'&&gm.st==='play')){grab={T,W:h.W,ox:h.W.x-T.pp[0],oy:h.W.y-T.pp[1],qh0:T.q,qu0:h.W.qu};h.W.z=++zc;snd(320,.05,.05);buzz(15)}}
     if(!T.pinch&&T.was){
