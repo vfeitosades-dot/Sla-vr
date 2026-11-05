@@ -48,6 +48,12 @@ jobs:
               assert token in source, token
           PY
           node --check /tmp/hand-tracking-check.js
+      - name: Testar reprodução panorâmica e VR
+        env:
+          CHROME_BIN: /usr/bin/google-chrome
+        run: |
+          npm install --prefix /tmp/vr-player-test playwright
+          NODE_PATH=/tmp/vr-player-test/node_modules node hand-tracking-vr/tests/playback360.cjs hand-tracking-vr/app/src/main/assets/index.html
       - name: Compilar APK
         run: gradle --project-dir hand-tracking-vr --no-daemon assembleDebug
       - name: Verificar assinatura
@@ -75,8 +81,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          TAG="hand-tracking-floating-${GITHUB_SHA:0:12}"
+          TAG="hand-tracking-real360-${GITHUB_SHA:0:12}"
           gh release create "$TAG" --target "$GITHUB_SHA" \
-            --title "Hand Tracking VR - YouTube no painel flutuante" \
-            --notes "YouTube e busca de videos 360 no painel flutuante sobre a camera. Navegador interno acompanha posicao, escala e rotacao do painel." --prerelease
+            --title "Hand Tracking VR - Player 360 imersivo" \
+            --notes "Catalogo de demonstracoes 360 com reproducao direta, sensor de cabeca, tela cheia VR e um botao para sair. Fontes: Bitmovin Playhouse e Google VR Congo; nao usa videos do YouTube." --prerelease
           gh release upload "$TAG" HandTrackingVR-VRBox.apk --clobber
