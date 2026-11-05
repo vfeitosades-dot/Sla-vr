@@ -205,6 +205,10 @@ function saveImg(c){c.toBlob(b=>{const a=document.createElement('a');a.href=URL.
 function setFov(d){FOVL=Math.max(50,Math.min(95,d));try{localStorage.setItem('fov',FOVL)}catch(e){}gyroGeom()}
 
 // navegador
+function openYouTube360(){
+  if(window.Android&&typeof Android.openYouTube360==='function'){Android.openYouTube360();return}
+  window.open('https://www.youtube.com/results?search_query=360+video','_blank','noopener,noreferrer');
+}
 const ytId=u=>{const m=u.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?(?:.*&)?v=|embed\/|shorts\/|live\/))([\w-]{11})/);return m&&m[1]};
 const srcOf=u=>{const y=ytId(u);return y?`https://www.youtube-nocookie.com/embed/${y}?playsinline=1&rel=0`:u};
 function pasteClip(){
@@ -467,18 +471,12 @@ function paint(W){
     if(c){const bw=dw-48,bh=dh-80,k=Math.min(bw/c.width,bh/c.height),w=c.width*k,h=c.height*k,x=(dw-w)/2,y=66+(bh-h)/2;g.save();rrp(g,x,y,w,h,14);g.clip();g.drawImage(c,x,y,w,h);g.restore()}
   }else if(t==='v360'){
     bg(g,dw,dh,30);txt(g,'Vídeo 360',32,38,26,600);closeBtn();bar();
-    g.fillStyle='rgba(255,255,255,.07)';rrp(g,28,78,dw-56,60,16);g.fill();
-    let nm=v360.name||'Nenhum vídeo escolhido';g.font='500 18px system-ui,sans-serif';while(nm.length>1&&g.measureText(nm).width>dw-56-170)nm=nm.slice(0,-1);
-    txt(g,nm,46,108,18,500,v360.name?'#fff':'rgba(255,255,255,.55)');
-    const pill=(id,x,y,w,label,act,hi)=>{rrp(g,x,y,w,50,25);const a=g.createLinearGradient(0,y,0,y+50);a.addColorStop(0,hi?'#5b9bff':'rgba(255,255,255,.18)');a.addColorStop(1,hi?'#2f63d6':'rgba(255,255,255,.08)');g.fillStyle=a;g.fill();wgt(id,x,y,w,50,act,25);txt(g,label,x+w/2,y+26,18,600,'#fff','center')};
-    pill('pick',dw-28-150-6,86,150,'Escolher',pickVideo,false);
-    pill('w360',28,160,(dw-56-12)/2,'Assistir em 360',()=>enter360(false),true);
-    pill('wvr',28+(dw-56-12)/2+12,160,(dw-56-12)/2,'Assistir em VR Box',()=>enter360(true),true);
-    txt(g,'Formato do vídeo',28,252,17,500,'rgba(255,255,255,.7)');
-    LAYN.forEach((l,i)=>{const w=(dw-56-24)/3,x=28+i*(w+12);rrp(g,x,270,w,44,22);g.fillStyle=v360.lay===i?'#3d8bfd':'rgba(255,255,255,.12)';g.fill();wgt('l'+i,x,270,w,44,()=>{v360.lay=i;bLay.textContent=LAYN[i]},22);txt(g,l,x+w/2,293,16,600,'#fff','center')});
-    txt(g,'Use um vídeo 360 (equirretangular) guardado no celular, até 4K.',dw/2,342,15,400,'rgba(255,255,255,.6)','center');
-    txt(g,'O app não acessa o fluxo do YouTube: vídeos 360 de lá só rodam',dw/2,366,15,400,'rgba(255,255,255,.45)','center');
-    txt(g,'aqui se você tiver o arquivo. No Navegador, links do YouTube tocam normal.',dw/2,386,15,400,'rgba(255,255,255,.45)','center');
+    txt(g,'Escolha seu vídeo diretamente no YouTube',dw/2,118,22,500,'#fff','center');
+    rrp(g,80,166,dw-160,64,32);g.fillStyle='#e03131';g.fill();
+    wgt('youtube360',80,166,dw-160,64,openYouTube360,32);
+    txt(g,'Abrir YouTube 360',dw/2,199,23,600,'#fff','center');
+    txt(g,'Pesquise e reproduza no próprio YouTube.',dw/2,282,18,400,'rgba(255,255,255,.7)','center');
+    txt(g,'Abre no app YouTube ou no navegador do celular.',dw/2,316,16,400,'rgba(255,255,255,.55)','center');
   }else if(t==='kbd'){
     bg(g,dw,dh,32);closeBtn();
     // barra de texto
