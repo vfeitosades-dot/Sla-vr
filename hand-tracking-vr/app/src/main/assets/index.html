@@ -428,11 +428,11 @@ function paint(W){
     if(br.url&&!vr){g.save();g.globalCompositeOperation='destination-out';rrp(g,20,78,600,296,14);g.fill();g.restore()}
     else if(vr){g.fillStyle='rgba(255,255,255,.06)';rrp(g,20,78,600,296,14);g.fill();txt(g,'O navegador só funciona fora do modo VR',320,226,20,500,'rgba(255,255,255,.7)','center')}
     else{
-      [['Wikipédia','https://pt.m.wikipedia.org','#4263eb','#2b3fa8'],['OpenStreetMap','https://www.openstreetmap.org','#37b24d','#20702f'],['YouTube',null,'#e03131','#8a1c1c'],['Internet Archive','https://archive.org','#f06595','#a1264f']].forEach(([l,u,c1,c2],i)=>{
+      [['Wikipédia','https://pt.m.wikipedia.org','#4263eb','#2b3fa8'],['OpenStreetMap','https://www.openstreetmap.org','#37b24d','#20702f'],['YouTube','https://www.youtube.com/','#e03131','#8a1c1c'],['Internet Archive','https://archive.org','#f06595','#a1264f']].forEach(([l,u,c1,c2],i)=>{
         const x=20+(i%2)*306,y=84+(i/2|0)*128,gr=g.createLinearGradient(x,y,x,y+116);gr.addColorStop(0,c1);gr.addColorStop(1,c2);
         g.globalAlpha=.9;g.fillStyle=gr;rrp(g,x,y,294,116,22);g.fill();g.globalAlpha=1;
         wgt('s'+i,x,y,294,116,()=>u?navTo(u):(toast('Cole ou digite o link do vídeo'),openApp('kbd')),22);icon(g,'web',x+56,y+58,36);txt(g,l,x+104,y+58,22,600)});
-      txt(g,'YouTube: cole o link do vídeo. Sites que bloqueiam exibição em outros sites não abrem.',320,352,15,400,'rgba(255,255,255,.5)','center');
+      txt(g,'Sites que bloqueiam exibição em outros sites não abrem.',320,352,15,400,'rgba(255,255,255,.5)','center');
     }
   }else if(t==='cfg'){
     bg(g,dw,dh,30);txt(g,'Configurações',28,38,26,600);closeBtn();bar();
