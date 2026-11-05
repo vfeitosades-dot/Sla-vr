@@ -75,8 +75,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          TAG="hand-tracking-youtube-${GITHUB_SHA:0:12}"
+          TAG="hand-tracking-youtube360-${GITHUB_SHA:0:12}"
           gh release create "$TAG" --target "$GITHUB_SHA" \
-            --title "Hand Tracking VR - YouTube direto" \
-            --notes "Botao YouTube abre o site diretamente, sem pedir link. Requer internet." --prerelease
+            --title "Hand Tracking VR - YouTube 360" \
+            --notes "Painel Video 360 abre o YouTube para pesquisar e escolher videos, sem link ou importacao. A reproducao acontece no YouTube." --prerelease
           gh release upload "$TAG" HandTrackingVR-VRBox.apk --clobber
