@@ -1,0 +1,60 @@
+name: Hand Tracking VR 14 - APK
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'hand-tracking-vr14/**'
+      - '.github/workflows/hand-tracking-vr14-apk.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: hand-tracking-vr14
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: ''
+      - name: Instalar SDK
+        run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Verificar JavaScript
+        run: |
+          python3 - <<'PY2'
+          from pathlib import Path
+          html=Path('hand-tracking-vr14/app/src/main/assets/index.html').read_text()
+          js=html.split('<script>',1)[1].split('</script>',1)[0]
+          Path('/tmp/hand-vr14.js').write_text(js)
+          PY2
+          node --check /tmp/hand-vr14.js
+      - name: Gerar APK
+        run: gradle --project-dir hand-tracking-vr14 --no-daemon assembleDebug
+      - name: Validar APK
+        run: |
+          cp hand-tracking-vr14/app/build/outputs/apk/debug/app-debug.apk HandTrackingVR14.apk
+          test -s HandTrackingVR14.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose HandTrackingVR14.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HandTrackingVR14
+          path: HandTrackingVR14.apk
+          retention-days: 30
+      - name: Publicar no GitHub Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! gh release view hand-tracking-vr14 >/dev/null 2>&1; then
+            gh release create hand-tracking-vr14 --target "$GITHUB_SHA" --title 'Hand Tracking VR 14 (Android)' --notes 'APK debug assinado automaticamente. Requer camera e internet para o detector de maos.' --prerelease
+          fi
+          gh release upload hand-tracking-vr14 HandTrackingVR14.apk --clobber
