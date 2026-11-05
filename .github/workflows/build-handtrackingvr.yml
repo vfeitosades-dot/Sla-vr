@@ -1,6 +1,8 @@
 name: Build Hand Tracking VR APK
 on:
   workflow_dispatch:
+  pull_request:
+    branches: [main]
   push:
     branches: [handtracking-vr-android]
     paths:
