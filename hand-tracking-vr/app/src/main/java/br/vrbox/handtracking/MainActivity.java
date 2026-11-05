@@ -2,6 +2,9 @@ package br.vrbox.handtracking;
 
 import android.Manifest;
 import android.app.Activity;
+import android.content.Intent;
+import android.content.ActivityNotFoundException;
+import android.widget.Toast;
 import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
 import android.os.Bundle;
@@ -93,6 +96,16 @@ public final class MainActivity extends Activity {
             }
         });
         web.addJavascriptInterface(new Object() {
+            @JavascriptInterface public void openYouTube360() {
+                runOnUiThread(() -> {
+                    Intent youtube = new Intent(Intent.ACTION_VIEW,
+                            Uri.parse("https://www.youtube.com/results?search_query=360+video"));
+                    try { startActivity(youtube); }
+                    catch (ActivityNotFoundException e) {
+                        Toast.makeText(MainActivity.this, "Instale o YouTube ou um navegador.", Toast.LENGTH_LONG).show();
+                    }
+                });
+            }
             @JavascriptInterface public void setVR(boolean enable) {
                 runOnUiThread(() -> {
                     vrActive = enable;
