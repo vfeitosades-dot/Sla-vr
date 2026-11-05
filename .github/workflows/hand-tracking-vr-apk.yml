@@ -44,7 +44,7 @@ jobs:
           scripts=re.findall(r'<script>(.*?)</script>',source,re.S)
           assert len(scripts)==1, 'Script inline nao encontrado'
           Path('/tmp/hand-tracking-check.js').write_text(scripts[0])
-          for token in ['vrScale','gl.texSubImage2D','setVR(on)','HandTrackingApp','gyroStep(v)']:
+          for token in ['getUserMedia','HandLandmarker','setVR(on)','gyroStep(v)']:
               assert token in source, token
           PY
           node --check /tmp/hand-tracking-check.js
