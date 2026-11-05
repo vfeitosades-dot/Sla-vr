@@ -291,19 +291,33 @@ function mapTick(W,dt){
 
 
 /* ---------- VÍDEO 360: player equirretangular em WebGL, guiado pelo sensor de direção ---------- */
-const v360={name:'',lay:0,stereo:false,on:false,yaw:0,pit:0,ref:[1,0,0,0],url:null};
-const vv=document.createElement('video');vv.playsInline=true;vv.loop=true;vv.setAttribute('playsinline','');vv.preload='auto';
-const fileVid=document.createElement('input');fileVid.type='file';fileVid.accept='video/*';fileVid.style.display='none';document.body.appendChild(fileVid);
-fileVid.onchange=()=>{const f=fileVid.files[0];if(!f)return;if(v360.url)URL.revokeObjectURL(v360.url);v360.url=URL.createObjectURL(f);vv.src=v360.url;vv.load();v360.name=f.name;fileVid.value='';toast('Vídeo carregado');snd(700,.1,.05)};
-function pickVideo(){if(navigator.userActivation&&!navigator.userActivation.isActive){pendingPick=fileVid;toast('Toque na tela para escolher o vídeo');return}fileVid.click()}
+const CATALOG360=[
+  {title:'Playhouse · experiência 360',credit:'Demonstração pública Bitmovin',url:'https://cdn.bitmovin.com/content/assets/playhouse-vr/progressive.mp4',lay:0},
+  {title:'Congo · natureza em 360',credit:'Demonstração pública Google VR',url:'https://storage.googleapis.com/vrview/examples/video/congo_2048.mp4',lay:1}
+];
+const v360={name:'',lay:0,stereo:true,on:false,yaw:0,pit:0,ref:[1,0,0,0],url:null,pose:null,angle:null,session:0,error:'',uploaded:false};
+const vv=document.createElement('video');vv.crossOrigin='anonymous';vv.playsInline=true;vv.loop=true;vv.setAttribute('playsinline','');vv.preload='metadata';
 const g360=document.createElement('canvas');g360.style.cssText='position:fixed;inset:0;width:100%;height:100%;display:none;z-index:7;background:#000;touch-action:none;pointer-events:auto';document.body.appendChild(g360);
-const bar360=document.createElement('div');bar360.style.cssText='position:fixed;left:0;right:0;top:calc(env(safe-area-inset-top,0px) + 10px);display:none;justify-content:center;gap:8px;z-index:8;flex-wrap:wrap';document.body.appendChild(bar360);
-const mkb=(l,fn)=>{const b=document.createElement('button');b.textContent=l;b.style.cssText='position:static;transform:none;padding:10px 14px;font-size:14px;background:rgba(0,0,0,.45);color:#fff;border:1px solid rgba(255,255,255,.4);backdrop-filter:blur(6px)';b.onclick=e=>{e.stopPropagation();fn()};bar360.appendChild(b);return b};
-const LAYN=['2D','3D cima/baixo','3D lado a lado'];
-mkb('✕ Sair',()=>exit360());mkb('⏯',()=>{vv.paused?vv.play():vv.pause()});
-mkb('VR Box',()=>setStereo360(true));const bLay=mkb('2D',()=>{v360.lay=(v360.lay+1)%3;bLay.textContent=LAYN[v360.lay]});
-mkb('↺ Centrar',()=>{v360.ref=gy.Qd.slice();v360.yaw=v360.pit=0});
+const bar360=document.createElement('div');bar360.style.cssText='position:fixed;right:calc(env(safe-area-inset-right,0px) + 12px);top:calc(env(safe-area-inset-top,0px) + 12px);display:none;z-index:8';document.body.appendChild(bar360);
+const exit360Button=document.createElement('button');exit360Button.textContent='✕ Sair';exit360Button.setAttribute('aria-label','Sair do vídeo 360');exit360Button.style.cssText='position:static;transform:none;min-height:48px;padding:10px 18px;font-size:16px;background:#111b;color:#fff;border:1px solid #fff8;border-radius:24px';exit360Button.onclick=()=>exit360();bar360.appendChild(exit360Button);
+const state360=document.createElement('div');state360.style.cssText='position:fixed;left:15%;right:15%;top:45%;z-index:8;display:none;color:#fff;text-align:center;font:18px system-ui;text-shadow:0 1px 4px #000;pointer-events:none';document.body.appendChild(state360);
 let gl3=null,gt3=null,gu3={},newF=true;
+function status360(message){state360.textContent=message;state360.style.display=message?'block':'none'}
+function head360(){return v360.pose||gy.Qd}
+window.update360Pose=(w,x,y,z,angle)=>{
+  const q=qmul(qmul([w,x,y,z],[0,1,0,0]),qexp([0,0,-angle*Math.PI/180]));
+  if(v360.angle!==angle||!v360.pose){v360.angle=angle;v360.ref=q.slice();v360.pose=q}
+  else v360.pose=qnl(v360.pose,q,.55);
+};
+async function select360(index){
+  const item=CATALOG360[index];if(!item)return;
+  vv.pause();v360.name=item.title;v360.lay=item.lay;v360.url=item.url;
+  vv.src=item.url;vv.load();newF=true;
+  await enter360(true);
+}
+vv.addEventListener('waiting',()=>{if(v360.on)status360('Carregando vídeo 360…')});
+vv.addEventListener('playing',()=>{if(v360.on&&!v360.error)status360('')});
+vv.addEventListener('error',()=>{if(v360.on){v360.error='Não foi possível carregar este vídeo. Verifique sua internet e tente outra experiência.';status360(v360.error)}});
 const FS360=`#ifdef GL_FRAGMENT_PRECISION_HIGH
 precision highp float;
 #else
@@ -325,9 +339,10 @@ void main(){
 function initGL360(){
   if(gl3)return;
   gl3=g360.getContext('webgl',{alpha:false,antialias:false});
-  const sh=(ty,s)=>{const o=gl3.createShader(ty);gl3.shaderSource(o,s);gl3.compileShader(o);return o};
+  if(!gl3)throw new Error('WebGL não disponível neste aparelho.');
+  const sh=(ty,s)=>{const o=gl3.createShader(ty);gl3.shaderSource(o,s);gl3.compileShader(o);if(!gl3.getShaderParameter(o,gl3.COMPILE_STATUS))throw new Error(gl3.getShaderInfoLog(o));return o};
   const pr=gl3.createProgram();gl3.attachShader(pr,sh(gl3.VERTEX_SHADER,'attribute vec2 p;varying vec2 uv;void main(){uv=p*.5+.5;gl_Position=vec4(p,0.,1.);}'));
-  gl3.attachShader(pr,sh(gl3.FRAGMENT_SHADER,FS360));gl3.linkProgram(pr);gl3.useProgram(pr);
+  gl3.attachShader(pr,sh(gl3.FRAGMENT_SHADER,FS360));gl3.linkProgram(pr);if(!gl3.getProgramParameter(pr,gl3.LINK_STATUS))throw new Error(gl3.getProgramInfoLog(pr));gl3.useProgram(pr);
   const b=gl3.createBuffer();gl3.bindBuffer(gl3.ARRAY_BUFFER,b);gl3.bufferData(gl3.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl3.STATIC_DRAW);
   const l=gl3.getAttribLocation(pr,'p');gl3.enableVertexAttribArray(l);gl3.vertexAttribPointer(l,2,gl3.FLOAT,false,0,0);
   gt3=gl3.createTexture();gl3.bindTexture(gl3.TEXTURE_2D,gt3);
@@ -341,8 +356,8 @@ addEventListener('resize',()=>{if(v360.on)size360()});
 function draw360(){
   if(!v360.on)return;
   const W=g360.width,H=g360.height;
-  if(vv.readyState>=2&&(newF||!vv.requestVideoFrameCallback)){newF=false;gl3.bindTexture(gl3.TEXTURE_2D,gt3);try{gl3.texImage2D(gl3.TEXTURE_2D,0,gl3.RGBA,gl3.RGBA,gl3.UNSIGNED_BYTE,vv)}catch(e){}}
-  const rel=qmul(qconj(v360.ref),gy.Qd),view=qmul(qmul(qexp([0,v360.yaw,0]),rel),qexp([v360.pit,0,0])),M=qmat(view);
+  if(vv.readyState>=2&&(newF||!vv.requestVideoFrameCallback)){newF=false;gl3.bindTexture(gl3.TEXTURE_2D,gt3);try{gl3.texImage2D(gl3.TEXTURE_2D,0,gl3.RGBA,gl3.RGBA,gl3.UNSIGNED_BYTE,vv)}catch(e){v360.error='Este vídeo não permite reprodução panorâmica.';status360(v360.error)}}
+  const rel=qmul(qconj(v360.ref),head360()),view=qmul(qmul(qexp([0,v360.yaw,0]),rel),qexp([v360.pit,0,0])),M=qmat(view);
   gl3.uniformMatrix3fv(gu3.M,false,new Float32Array([M[0][0],M[1][0],M[2][0],M[0][1],M[1][1],M[2][1],M[0][2],M[1][2],M[2][2]]));
   gl3.uniform1f(gu3.lay,v360.lay);
   if(v360.stereo){
@@ -352,24 +367,37 @@ function draw360(){
     gl3.viewport(0,0,W,H);gl3.uniform1f(gu3.tanH,.84);gl3.uniform1f(gu3.asp,W/H);gl3.uniform1f(gu3.dist,0);gl3.uniform1f(gu3.eye,0);gl3.drawArrays(gl3.TRIANGLE_STRIP,0,4)}
   requestAnimationFrame(draw360);
 }
-function setStereo360(on){
-  v360.stereo=on;bar360.style.display=on?'none':'flex';
-  if(on){try{document.documentElement.requestFullscreen({navigationUI:'hide'}).catch(()=>{})}catch(e){}try{screen.orientation.lock('landscape').catch(()=>{})}catch(e){}}
+async function enter360(st=true){
+  if(!v360.name)return;
+  if(v360.on)exit360();
+  const session=++v360.session;v360.on=true;v360.stereo=true;v360.pose=null;v360.angle=null;v360.ref=gy.Qd.slice();v360.yaw=v360.pit=0;v360.error='';
+  if(window.Android){
+    if(Android.positionYouTube)Android.positionYouTube(false,0,0,1,0,HW);
+    if(Android.pauseYouTube)Android.pauseYouTube();
+    if(Android.setImmersive360)Android.setImmersive360(true);
+  }
+  g360.style.display='block';bar360.style.display='block';status360('Carregando vídeo 360…');
+  try{initGL360();size360()}catch(e){v360.error=e.message;status360(e.message);return}
+  try{await document.documentElement.requestFullscreen({navigationUI:'hide'})}catch(e){}
+  try{await screen.orientation.lock('landscape')}catch(e){}
+  size360();requestAnimationFrame(draw360);
+  try{await vv.play()}catch(e){
+    if(v360.on&&session===v360.session){v360.error='Não foi possível iniciar o vídeo. Saia e selecione novamente.';status360(v360.error)}
+  }
 }
-function enter360(st){
-  if(!v360.name){toast('Escolha um vídeo primeiro');return}
-  v360.on=true;v360.ref=gy.Qd.slice();v360.yaw=v360.pit=0;
-  if(br.url){fr._saved=br.url;fr.src='about:blank'} // silencia o YouTube enquanto assiste
-  g360.style.display='block';initGL360();size360();setStereo360(st);
-  vv.play().catch(()=>{vv.muted=true;vv.play().catch(()=>{})});
-  requestAnimationFrame(draw360);
+function exit360(){
+  v360.on=false;v360.session++;vv.pause();g360.style.display='none';bar360.style.display='none';status360('');
+  if(window.Android&&Android.setImmersive360)Android.setImmersive360(false);
+  try{screen.orientation.unlock()}catch(e){}
+  try{if(document.fullscreenElement)document.exitFullscreen().catch(()=>{})}catch(e){}
 }
-function exit360(){if(fr._saved){fr.src=srcOf(fr._saved);fr._saved=null}v360.on=false;g360.style.display='none';bar360.style.display='none';vv.pause();try{screen.orientation.unlock()}catch(e){}try{if(document.fullscreenElement)document.exitFullscreen()}catch(e){}}
+window.HandTrackingApp={exitVR(){if(v360.on){exit360();return true}if(vr){setVR(false);return true}return false}};
 {let dn=null;
- g360.addEventListener('pointerdown',e=>{dn={x:e.clientX,y:e.clientY,m:false}});
- g360.addEventListener('pointermove',e=>{if(!dn||v360.stereo)return;const dx=e.clientX-dn.x,dy=e.clientY-dn.y;if(Math.abs(dx)+Math.abs(dy)>3)dn.m=true;
-   v360.yaw-=dx*.004;v360.pit=clamp(v360.pit+dy*.004,-1.4,1.4);dn.x=e.clientX;dn.y=e.clientY}); // arrastar o dedo também gira a vista
- g360.addEventListener('pointerup',()=>{if(dn&&!dn.m&&!v360.stereo)bar360.style.display=bar360.style.display==='none'?'flex':'none';dn=null})}
+ g360.addEventListener('pointerdown',e=>{e.stopPropagation();dn={x:e.clientX,y:e.clientY}});
+ g360.addEventListener('pointermove',e=>{e.stopPropagation();if(!dn)return;const dx=e.clientX-dn.x,dy=e.clientY-dn.y;
+   v360.yaw-=dx*.004;v360.pit=clamp(v360.pit+dy*.004,-1.4,1.4);dn.x=e.clientX;dn.y=e.clientY});
+ g360.addEventListener('pointerup',e=>{e.stopPropagation();dn=null});
+ g360.addEventListener('pointercancel',()=>{dn=null})}
 
 // desenho das janelas (visual inspirado no Horizon OS do Quest)
 const txt=(g,s,x,y,sz,wt,col,al)=>{g.font=`${wt||500} ${sz}px system-ui,sans-serif`;g.fillStyle=col||'#fff';g.textAlign=al||'left';g.textBaseline='middle';g.fillText(s,x,y)};
@@ -476,13 +504,15 @@ function paint(W){
     wgt('sv',24,14,130,40,()=>c&&saveImg(c),20);g.fillStyle='rgba(255,255,255,.12)';rrp(g,24,14,130,40,20);g.fill();txt(g,'Salvar',89,35,17,600,'#fff','center');
     if(c){const bw=dw-48,bh=dh-80,k=Math.min(bw/c.width,bh/c.height),w=c.width*k,h=c.height*k,x=(dw-w)/2,y=66+(bh-h)/2;g.save();rrp(g,x,y,w,h,14);g.clip();g.drawImage(c,x,y,w,h);g.restore()}
   }else if(t==='v360'){
-    bg(g,dw,dh,30);txt(g,'Vídeo 360',32,38,26,600);closeBtn();bar();
-    txt(g,'Escolha seu vídeo diretamente no YouTube',dw/2,118,22,500,'#fff','center');
-    rrp(g,80,166,dw-160,64,32);g.fillStyle='#e03131';g.fill();
-    wgt('youtube360',80,166,dw-160,64,openYouTube360,32);
-    txt(g,'Abrir YouTube 360',dw/2,199,23,600,'#fff','center');
-    txt(g,'Pesquise e reproduza no próprio YouTube.',dw/2,282,18,400,'rgba(255,255,255,.7)','center');
-    txt(g,'Abre no painel flutuante sobre a câmera.',dw/2,316,16,400,'rgba(255,255,255,.55)','center');
+    bg(g,dw,dh,30);txt(g,'Vídeo 360 · VR',32,38,26,600);closeBtn();bar();
+    CATALOG360.forEach((item,i)=>{
+      const y=88+i*116;rrp(g,28,y,dw-56,98,20);g.fillStyle=i?'#21504b':'#354b83';g.fill();
+      wgt('experience360'+i,28,y,dw-56,98,()=>select360(i),20);
+      txt(g,item.title,48,y+32,22,600,'#fff');
+      txt(g,item.credit,48,y+65,15,400,'rgba(255,255,255,.7)');
+    });
+    txt(g,'Escolha uma experiência para abrir em VR e tela cheia.',dw/2,346,16,400,'rgba(255,255,255,.8)','center');
+    txt(g,'Mova a cabeça para olhar ao redor. Requer internet.',dw/2,376,16,400,'rgba(255,255,255,.6)','center');
   }else if(t==='kbd'){
     bg(g,dw,dh,32);closeBtn();
     // barra de texto
@@ -578,7 +608,7 @@ function drawWin(W,now){
 function toScreen(x,y){const s=Math.max(HW/CW,HH/CH);return[(HW-CW*s)/2+x*s,(HH-CH*s)/2+y*s]}
 function fromScreen(x,y){const s=Math.max(HW/CW,HH/CH);return[(x-(HW-CW*s)/2)/s,(y-(HH-CH*s)/2)/s]}
 function updateFrame(){
-  const W=WINS.find(w=>w.type==='web'),show=W&&br.url&&!vr&&W.front&&Math.hypot(W.qu[1],W.qu[2])<.05;
+  const W=WINS.find(w=>w.type==='web'),show=W&&br.url&&!vr&&!v360.on&&W.front&&Math.hypot(W.qu[1],W.qu[2])<.05;
   const native=!!br.nativeYoutube;
   if(window.Android&&Android.positionYouTube){
     const now=performance.now();
@@ -829,6 +859,7 @@ function drawVR(){
   gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
 }
 async function setVR(on){
+  if(window.Android&&Android.setVR)Android.setVR(on);
   vr=on;glc.style.display=on?'block':'none';vrb.style.display=on?'none':'block';
   if(on){
     initGL();sizeVR();
@@ -845,11 +876,11 @@ vrb.onclick=()=>setVR(true);
 
 /* ---------- gestos: toque = clicar · segurar = recentrar · toque duplo = sair do VR ---------- */
 let pressT=null,lastTap=0,pdown=null;
-document.addEventListener('pointerdown',e=>{if(e.target.closest('button'))return;pdown={x:e.clientX,y:e.clientY};clearTimeout(pressT);pressT=setTimeout(()=>{pressT=null;pdown=null;if(v360.on){v360.ref=gy.Qd.slice();v360.yaw=v360.pit=0}else recenter()},700)});
+document.addEventListener('pointerdown',e=>{if(e.target.closest('button'))return;pdown={x:e.clientX,y:e.clientY};clearTimeout(pressT);pressT=setTimeout(()=>{pressT=null;pdown=null;if(v360.on){v360.ref=head360().slice();v360.yaw=v360.pit=0}else recenter()},700)});
 document.addEventListener('pointerup',e=>{
   if(pendingPick&&!e.target.closest('button')){const p=pendingPick;pendingPick=null;clearTimeout(pressT);pressT=null;pdown=null;p.click();return}
   if(pressT){clearTimeout(pressT);pressT=null;const n=Date.now();
-    if(vr&&n-lastTap<350)setVR(false);if(v360.on&&v360.stereo&&n-lastTap<350)setStereo360(false);lastTap=n;
+    if(!v360.on&&vr&&n-lastTap<350)setVR(false);lastTap=n;
     if(!vr&&!v360.on&&started&&pdown&&Math.hypot(e.clientX-pdown.x,e.clientY-pdown.y)<14){const[cx,cy]=fromScreen(e.clientX,e.clientY),h=hitAt(cx,cy);
       if(h){if(h.wg){click();h.wg.act()}else if(h.W.type==='game')gamePop(h.lx,h.ly)}}}
   pdown=null});
