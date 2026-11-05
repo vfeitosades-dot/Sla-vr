@@ -205,6 +205,10 @@ function saveImg(c){c.toBlob(b=>{const a=document.createElement('a');a.href=URL.
 function setFov(d){FOVL=Math.max(50,Math.min(95,d));try{localStorage.setItem('fov',FOVL)}catch(e){}gyroGeom()}
 
 // navegador
+function openYouTube(){
+  if(window.Android&&typeof Android.openYouTube==='function'){Android.openYouTube();return}
+  navTo('https://www.youtube.com/');
+}
 function openYouTube360(){
   if(window.Android&&typeof Android.openYouTube360==='function'){Android.openYouTube360();return}
   window.open('https://www.youtube.com/results?search_query=360+video','_blank','noopener,noreferrer');
@@ -215,6 +219,7 @@ function pasteClip(){
   try{navigator.clipboard.readText().then(s=>{br.input=(s||'').trim();toast(br.input?'Link colado':'Área de transferência vazia')}).catch(()=>toast('Não consegui ler a área de transferência'))}catch(e){toast('Colar indisponível aqui')}}
 function navTo(u){
   u=(u||'').trim();if(!u)return;
+  if(/^https:\/\/(?:www\.|m\.)?youtube\.com(?:\/|$)/i.test(u)&&window.Android&&typeof Android.openYouTube==='function'){Android.openYouTube();return;}
   if(!/^https?:\/\//i.test(u))u=(/\s/.test(u)||!u.includes('.'))?'https://pt.wikipedia.org/w/index.php?search='+encodeURIComponent(u):'https://'+u;
   br.hist=br.hist.slice(0,br.i+1);br.hist.push(u);br.i++;br.url=br.input=u;fr.src=srcOf(u);
 }
@@ -435,7 +440,7 @@ function paint(W){
       [['Wikipédia','https://pt.m.wikipedia.org','#4263eb','#2b3fa8'],['OpenStreetMap','https://www.openstreetmap.org','#37b24d','#20702f'],['YouTube','https://www.youtube.com/','#e03131','#8a1c1c'],['Internet Archive','https://archive.org','#f06595','#a1264f']].forEach(([l,u,c1,c2],i)=>{
         const x=20+(i%2)*306,y=84+(i/2|0)*128,gr=g.createLinearGradient(x,y,x,y+116);gr.addColorStop(0,c1);gr.addColorStop(1,c2);
         g.globalAlpha=.9;g.fillStyle=gr;rrp(g,x,y,294,116,22);g.fill();g.globalAlpha=1;
-        wgt('s'+i,x,y,294,116,()=>u?navTo(u):(toast('Cole ou digite o link do vídeo'),openApp('kbd')),22);icon(g,'web',x+56,y+58,36);txt(g,l,x+104,y+58,22,600)});
+        wgt('s'+i,x,y,294,116,()=>l==='YouTube'?openYouTube():u?navTo(u):(toast('Cole ou digite o link do vídeo'),openApp('kbd')),22);icon(g,'web',x+56,y+58,36);txt(g,l,x+104,y+58,22,600)});
       txt(g,'Sites que bloqueiam exibição em outros sites não abrem.',320,352,15,400,'rgba(255,255,255,.5)','center');
     }
   }else if(t==='cfg'){
@@ -476,7 +481,7 @@ function paint(W){
     wgt('youtube360',80,166,dw-160,64,openYouTube360,32);
     txt(g,'Abrir YouTube 360',dw/2,199,23,600,'#fff','center');
     txt(g,'Pesquise e reproduza no próprio YouTube.',dw/2,282,18,400,'rgba(255,255,255,.7)','center');
-    txt(g,'Abre no app YouTube ou no navegador do celular.',dw/2,316,16,400,'rgba(255,255,255,.55)','center');
+    txt(g,'Abre o YouTube dentro deste app.',dw/2,316,16,400,'rgba(255,255,255,.55)','center');
   }else if(t==='kbd'){
     bg(g,dw,dh,32);closeBtn();
     // barra de texto
