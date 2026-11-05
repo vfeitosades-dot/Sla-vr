@@ -7,6 +7,8 @@ import android.widget.LinearLayout;
 import android.widget.Button;
 import android.view.ViewGroup;
 import android.graphics.Color;
+import android.view.MotionEvent;
+import android.os.SystemClock;
 import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
 import android.os.Bundle;
@@ -103,11 +105,55 @@ public final class MainActivity extends Activity {
             }
         });
         web.addJavascriptInterface(new Object() {
-            @JavascriptInterface public void openYouTube() {
-                runOnUiThread(() -> showYouTube(false));
+            @JavascriptInterface public void loadYouTube(String url) {
+                Uri uri = Uri.parse(url);
+                if (!"https".equals(uri.getScheme()) ||
+                    !("m.youtube.com".equals(uri.getHost()) || "www.youtube.com".equals(uri.getHost()))) return;
+                runOnUiThread(() -> { showYouTube(false); youtubeWeb.loadUrl(url); });
             }
-            @JavascriptInterface public void openYouTube360() {
-                runOnUiThread(() -> showYouTube(true));
+            @JavascriptInterface public void closeYouTubePanel() { runOnUiThread(() -> closeYouTube()); }
+            @JavascriptInterface public void youtubeNavigate(int direction) {
+                runOnUiThread(() -> {
+                    if (youtubeWeb == null) return;
+                    if (direction < 0 && youtubeWeb.canGoBack()) youtubeWeb.goBack();
+                    else if (direction > 0 && youtubeWeb.canGoForward()) youtubeWeb.goForward();
+                    else if (direction == 0) youtubeWeb.reload();
+                });
+            }
+            @JavascriptInterface public void positionYouTube(boolean visible, float x, float y,
+                                                             float scale, float roll, float viewportWidth) {
+                runOnUiThread(() -> {
+                    if (youtubePanel == null || viewportWidth <= 0) return;
+                    boolean wasVisible = youtubePanel.getVisibility() == View.VISIBLE;
+                    youtubePanel.setVisibility(visible ? View.VISIBLE : View.GONE);
+                    if (youtubeWeb != null && wasVisible != visible) {
+                        if (visible) youtubeWeb.onResume(); else youtubeWeb.onPause();
+                    }
+                    if (!visible) return;
+                    float ratio = web.getWidth() / viewportWidth;
+                    int width = Math.max(1, Math.round(600 * ratio));
+                    int height = Math.max(1, Math.round(296 * ratio));
+                    ViewGroup.LayoutParams lp = youtubePanel.getLayoutParams();
+                    if (lp.width != width || lp.height != height) {
+                        lp.width = width; lp.height = height; youtubePanel.setLayoutParams(lp);
+                    }
+                    youtubePanel.setPivotX(0); youtubePanel.setPivotY(0);
+                    youtubePanel.setTranslationX(x * ratio); youtubePanel.setTranslationY(y * ratio);
+                    youtubePanel.setScaleX(scale); youtubePanel.setScaleY(scale);
+                    youtubePanel.setRotation((float) Math.toDegrees(roll));
+                });
+            }
+            @JavascriptInterface public void youtubeTap(float x, float y) {
+                runOnUiThread(() -> {
+                    if (youtubeWeb == null || youtubePanel.getVisibility() != View.VISIBLE ||
+                        x < 0 || x > 600 || y < 0 || y > 296) return;
+                    float ratio = youtubePanel.getWidth() / 600f;
+                    long now = SystemClock.uptimeMillis();
+                    MotionEvent down = MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, x*ratio, y*ratio, 0);
+                    MotionEvent up = MotionEvent.obtain(now, now+60, MotionEvent.ACTION_UP, x*ratio, y*ratio, 0);
+                    youtubeWeb.dispatchTouchEvent(down); youtubeWeb.dispatchTouchEvent(up);
+                    down.recycle(); up.recycle();
+                });
             }
             @JavascriptInterface public void setVR(boolean enable) {
                 runOnUiThread(() -> {
@@ -127,19 +173,6 @@ public final class MainActivity extends Activity {
         youtubePanel.setBackgroundColor(Color.BLACK);
         LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
-        LinearLayout toolbar = new LinearLayout(this);
-        Button back = new Button(this);
-        back.setText("Voltar");
-        back.setOnClickListener(v -> {
-            if (youtubeWeb != null && youtubeWeb.canGoBack()) youtubeWeb.goBack();
-            else closeYouTube();
-        });
-        Button close = new Button(this);
-        close.setText("Fechar YouTube");
-        close.setOnClickListener(v -> closeYouTube());
-        toolbar.addView(back);
-        toolbar.addView(close);
-        layout.addView(toolbar);
         youtubeWeb = new WebView(this);
         WebSettings ys = youtubeWeb.getSettings();
         ys.setJavaScriptEnabled(true);
@@ -168,10 +201,9 @@ public final class MainActivity extends Activity {
         });
         layout.addView(youtubeWeb, new LinearLayout.LayoutParams(-1, 0, 1));
         youtubePanel.addView(layout, new FrameLayout.LayoutParams(-1, -1));
-        root.addView(youtubePanel, new FrameLayout.LayoutParams(-1, -1));
-        youtubeWeb.loadUrl(search360
-                ? "https://m.youtube.com/results?search_query=360+video"
-                : "https://m.youtube.com/");
+        youtubePanel.setVisibility(View.GONE);
+        root.addView(youtubePanel, new FrameLayout.LayoutParams(1, 1));
+
     }
     private void hideYouTubeVideo() {
         if (videoPanel == null) return;
@@ -217,7 +249,7 @@ public final class MainActivity extends Activity {
         if (videoPanel != null) { hideYouTubeVideo(); return; }
         if (youtubeWeb != null) {
             if (youtubeWeb.canGoBack()) youtubeWeb.goBack();
-            else closeYouTube();
+            else { closeYouTube(); web.evaluateJavascript("navHome()", null); }
             return;
         }
         if (vrActive) {
